@@ -1,0 +1,23 @@
+# Ignore Python virtual environment
+venv/
+
+# Ignore Qodo files
+*.qodo
+*.qodo.*
+
+# Ignore Qodo history folder
+history/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VSCode settings (optional)
+.vscode/
+
+# MacOS
+.DS_Store
+
+# Docker
+*.env
