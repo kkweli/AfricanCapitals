@@ -1,5 +1,22 @@
 from fastapi import FastAPI
 import httpx
+from datetime import datetime
+import sys
+
+# Use zoneinfo for local timezone (Python 3.9+)
+try:
+    from zoneinfo import ZoneInfo
+    import os
+    # Try to get the system's timezone from environment or default to Etc/UTC
+    tz_key = os.environ.get("TZ") or "Etc/UTC"
+    try:
+        LOCAL_TZ = ZoneInfo(tz_key)
+    except Exception:
+        # Fallback to system local timezone if ZoneInfo fails
+        LOCAL_TZ = None
+except ImportError:
+    # For Python <3.9 fallback to None
+    LOCAL_TZ = None
 
 app = FastAPI(
     title="African Capitals API",
@@ -15,9 +32,28 @@ REST_COUNTRIES_URL = "https://restcountries.com/v3.1/region/africa"
 @app.get("/health", summary="Health check endpoint")
 async def health_check():
     """
-    Simple health check endpoint.
+    Health check endpoint that attempts to fetch data from the REST Countries API.
+    Returns the current timestamp (host local timezone) and status.
     """
-    return {"status": "ok"}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(REST_COUNTRIES_URL, timeout=5)
+            response.raise_for_status()
+        # Use ZoneInfo if available, else fallback to system local time
+        if LOCAL_TZ:
+            now = datetime.now(LOCAL_TZ)
+        else:
+            now = datetime.now().astimezone()
+        return {
+            "status": "ok",
+            "last_sync": now.isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "exception",
+            "last_sync": None,
+            "error": str(e)
+        }
 
 @app.get("/african-capitals", summary="Get capital cities of African countries grouped by region")
 async def get_african_capitals():
