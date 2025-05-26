@@ -2,6 +2,7 @@ from fastapi import FastAPI
 import httpx
 from datetime import datetime
 import sys
+import uvicorn
 
 # Use zoneinfo for local timezone (Python 3.9+)
 try:
@@ -88,6 +89,5 @@ async def get_african_capitals():
     return {"african_capitals_by_region": result}
 
 # Run the app with uvicorn
-if __name__ == "__main__":
-    import uvicorn
+if __name__ == "__main__":    
     uvicorn.run(app, host="0.0.0.0", port=8000)
