@@ -80,9 +80,14 @@ async def get_african_capitals():
     result = []
     for region in REGION_ORDER:
         if grouped[region]:
-            result.append({
+            result.append({     
                 "region": region,
                 "countries": sorted(grouped[region], key=lambda x: x["country"])
             })
 
     return {"african_capitals_by_region": result}
+
+# Run the app with uvicorn
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
