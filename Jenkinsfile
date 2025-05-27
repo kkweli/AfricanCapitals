@@ -54,67 +54,62 @@ pipeline {
             }
         }
 
-        stage('Deploy to Local Docker Instance') {
+         stage('Deploy to Local Docker Instance') {
             steps {
                 script {
                     bat """
                         @echo off
-                        setlocal enabledelayedexpansion
 
-                        :: Cleanup any existing container first
-                        echo Stopping and removing previous container...
-                        docker stop african-capitals-api >nul 2>&1
-                        docker rm african-capitals-api >nul 2>&1
-
-                        :: Wait for port to become free
-                        set PORT_CHECK_RETRIES=5
-                        set PORT_CHECK_DELAY=5
-                        set PORT_CHECK_COUNT=0
-
-                        :port_check_loop
-                        netstat -ano | findstr :8000 >nul
-                        if !errorlevel! equ 0 (
-                            if !PORT_CHECK_COUNT! geq !PORT_CHECK_RETRIES! (
-                                echo ERROR: Port 8000 still in use after !PORT_CHECK_RETRIES! attempts
-                                exit 1
-                            )
-                            echo Port 8000 in use, retry !PORT_CHECK_COUNT!/!PORT_CHECK_RETRIES!...
-                            timeout /t !PORT_CHECK_DELAY! >nul
-                            set /a PORT_CHECK_COUNT+=1
-                            goto port_check_loop
+                        REM -- Try to stop the container
+                        docker stop ${CONTAINER_NAME}
+                        if errorlevel 1 (
+                            echo No running container named '${CONTAINER_NAME}' to stop.
+                        ) else (
+                            echo Stopped existing container '${CONTAINER_NAME}'.
                         )
 
-                        :: Start new container with restart policy
-                        echo Starting new container...
-                        docker run -d \\
-                            --name ${CONTAINER_NAME}  \\
-                            --restart unless-stopped \\
-                            -p ${HOST_PORT}:${CONTAINER_PORT} \\
-                            ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        REM -- Try to remove the container
+                        docker rm ${CONTAINER_NAME}
+                        if errorlevel 1 (
+                            echo No container named '${CONTAINER_NAME}' to remove.
+                        ) else (
+                            echo Removed container '${CONTAINER_NAME}'.
+                        )
 
-                        :: Health check with increased timeout and retries
+                        REM -- Try to remove the image
+                        docker rmi ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        if errorlevel 1 (
+                            echo No image '${DOCKERHUB_REPO}:${IMAGE_TAG}' to remove.
+                        ) else (
+                            echo Removed image '${DOCKERHUB_REPO}:${IMAGE_TAG}'.
+                        )
+
+                        REM -- Start new container
+                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                        REM -- Health check loop
                         set MAX_RETRIES=15
-                        set RETRY_DELAY=10
+                        set RETRY_DELAY=5
                         set RETRY_COUNT=0
 
-                        :health_check_loop
-                        curl.exe -sS -m 30 http://localhost:8000/health >nul
+                        :retry_loop
+                        curl.exe -v --max-time 10 http://localhost:${HOST_PORT}/health >nul
                         if !errorlevel! equ 0 (
-                            echo Health check successful
+                            echo Health check passed
                             exit 0
                         )
 
                         if !RETRY_COUNT! geq !MAX_RETRIES! (
-                            echo ERROR: Health check failed after !MAX_RETRIES! attempts
+                            echo Health check failed after !MAX_RETRIES! attempts
                             echo Container logs:
-                            docker logs african-capitals-api
+                            docker logs ${CONTAINER_NAME}
                             exit 1
                         )
 
-                        echo Health check attempt !RETRY_COUNT!/!MAX_RETRIES! failed
-                        timeout /t !RETRY_DELAY! >nul
+                        echo Attempt !RETRY_COUNT!/!MAX_RETRIES!: Application not ready
+                        timeout /t !RETRY_DELAY! /nobreak >nul
                         set /a RETRY_COUNT+=1
-                        goto health_check_loop
+                        goto retry_loop
                     """
                 }
             }
