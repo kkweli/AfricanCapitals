@@ -59,10 +59,9 @@ pipeline {
                         docker run -d --name african-capitals-api -p 8000:8000 ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         
                         echo "Waiting for container to initialize..."
-                        timeout /t 30 /nobreak
                         echo "Container logs:"
                         docker logs african-capitals-api
-                        curl -v --retry 5 --retry-delay 10 http://localhost:8000/health || (
+                        curl -v --retry 5 --retry-delay 30 http://localhost:8000/health || (
                             echo "Health check failed" && 
                             docker logs african-capitals-api && 
                             exit 1
