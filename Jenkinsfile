@@ -54,10 +54,17 @@ pipeline {
             }
         }
 
-         stage('Deploy to Local Docker Instance') {
+        stage('Deploy to Local Docker Instance') {
             steps {
                 script {
-                    bat """
+                    // Compute previous tag; Jenkinsfile Groovy uses Integer arithmetic
+                    def prevTag = ""
+                    if (env.BUILD_NUMBER.toInteger() > 1) {
+                        prevTag = (env.BUILD_NUMBER.toInteger() - 1).toString()
+                    }
+
+                    // Build deploy script with optional previous image deletion
+                    def deployScript = """
                         @echo off
 
                         REM -- Try to stop the container
@@ -75,45 +82,57 @@ pipeline {
                         ) else (
                             echo Removed container '${CONTAINER_NAME}'.
                         )
-
-                        REM -- Try to remove the image
-                        docker rmi ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                    """
+                    if (prevTag != "") {
+                        deployScript += """
+                        REM -- Try to remove the previous image
+                        docker rmi ${DOCKERHUB_REPO}:${prevTag}
                         if errorlevel 1 (
-                            echo No image '${DOCKERHUB_REPO}:${IMAGE_TAG}' to remove.
+                            echo No previous image '${DOCKERHUB_REPO}:${prevTag}' to remove.
                         ) else (
-                            echo Removed image '${DOCKERHUB_REPO}:${IMAGE_TAG}'.
+                            echo Removed previous image '${DOCKERHUB_REPO}:${prevTag}'.
                         )
-
+                        """
+                    } else {
+                        deployScript += """
+                        REM -- First build, no previous image to remove.
+                        """
+                    }
+                    deployScript += """
                         REM -- Start new container
                         docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} ${DOCKERHUB_REPO}:${IMAGE_TAG}
 
-                        REM -- Health check loop
+                        REM -- Simple health check loop
                         set MAX_RETRIES=15
                         set RETRY_DELAY=5
                         set RETRY_COUNT=0
 
-                        :retry_loop
-                        curl.exe -v --max-time 10 http://localhost:${HOST_PORT}/health >nul
-                        if !errorlevel! equ 0 (
+                        :healthcheck_retry
+                        curl.exe --max-time 10 http://localhost:%HOST_PORT%/health >nul 2>&1
+                        if %errorlevel%==0 (
                             echo Health check passed
-                            exit 0
+                            exit /b 0
                         )
 
-                        if !RETRY_COUNT! geq !MAX_RETRIES! (
-                            echo Health check failed after !MAX_RETRIES! attempts
-                            echo Container logs:
-                            docker logs ${CONTAINER_NAME}
-                            exit 1
-                        )
-
-                        echo Attempt !RETRY_COUNT!/!MAX_RETRIES!: Application not ready
-                        timeout /t !RETRY_DELAY! /nobreak >nul
                         set /a RETRY_COUNT+=1
-                        goto retry_loop
+                        if %RETRY_COUNT% geq %MAX_RETRIES% (
+                            echo Health check failed after %MAX_RETRIES% attempts
+                            echo Container logs:
+                            docker logs %CONTAINER_NAME%
+                            exit /b 1
+                        )
+
+                        echo Attempt %RETRY_COUNT%/%MAX_RETRIES%: Application not ready, retrying in %RETRY_DELAY%s
+                        timeout /t %RETRY_DELAY% /nobreak >nul
+                        goto healthcheck_retry
                     """
+
+                    // Actually call BAT script
+                    bat(deployScript)
                 }
             }
         }
+    
     }
 
     post {
