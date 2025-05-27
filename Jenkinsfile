@@ -58,26 +58,63 @@ pipeline {
             steps {
                 script {
                     bat """
-                        powershell -Command "if (Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue) { Write-Output 'Port 8000 is in use'; exit 1 }"
-                        echo "Port 8000 is available"
-                        echo "Pulling image..."
-                        docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                        echo "Stopping existing container..."
-                        docker stop ${CONTAINER_NAME} || echo "Container not running."
-                        echo "Removing existing container..."
-                        docker rm ${CONTAINER_NAME} || echo "Container not found."
-                        echo "Running new container..."
-                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                        echo "Waiting for container to initialize..."
-                        timeout /t <seconds> [/nobreak]
-                        echo "Container logs:"
-                        docker logs ${CONTAINER_NAME}
-                        echo "Performing health check..."
-                        curl -v --retry 5 --retry-delay 30 http://localhost:${HOST_PORT}/health || (
-                            echo "Health check failed"
-                            docker logs ${CONTAINER_NAME}
+                        @echo off
+                        setlocal enabledelayedexpansion
+
+                        :: Cleanup any existing container first
+                        echo Stopping and removing previous container...
+                        docker stop african-capitals-api >nul 2>&1
+                        docker rm african-capitals-api >nul 2>&1
+
+                        :: Wait for port to become free
+                        set PORT_CHECK_RETRIES=5
+                        set PORT_CHECK_DELAY=5
+                        set PORT_CHECK_COUNT=0
+
+                        :port_check_loop
+                        netstat -ano | findstr :8000 >nul
+                        if !errorlevel! equ 0 (
+                            if !PORT_CHECK_COUNT! geq !PORT_CHECK_RETRIES! (
+                                echo ERROR: Port 8000 still in use after !PORT_CHECK_RETRIES! attempts
+                                exit 1
+                            )
+                            echo Port 8000 in use, retry !PORT_CHECK_COUNT!/!PORT_CHECK_RETRIES!...
+                            timeout /t !PORT_CHECK_DELAY! >nul
+                            set /a PORT_CHECK_COUNT+=1
+                            goto port_check_loop
+                        )
+
+                        :: Start new container with restart policy
+                        echo Starting new container...
+                        docker run -d \\
+                            --name ${CONTAINER_NAME}  \\
+                            --restart unless-stopped \\
+                            -p ${HOST_PORT}:${CONTAINER_PORT} \\
+                            ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                        :: Health check with increased timeout and retries
+                        set MAX_RETRIES=15
+                        set RETRY_DELAY=10
+                        set RETRY_COUNT=0
+
+                        :health_check_loop
+                        curl.exe -sS -m 30 http://localhost:8000/health >nul
+                        if !errorlevel! equ 0 (
+                            echo Health check successful
+                            exit 0
+                        )
+
+                        if !RETRY_COUNT! geq !MAX_RETRIES! (
+                            echo ERROR: Health check failed after !MAX_RETRIES! attempts
+                            echo Container logs:
+                            docker logs african-capitals-api
                             exit 1
                         )
+
+                        echo Health check attempt !RETRY_COUNT!/!MAX_RETRIES! failed
+                        timeout /t !RETRY_DELAY! >nul
+                        set /a RETRY_COUNT+=1
+                        goto health_check_loop
                     """
                 }
             }
