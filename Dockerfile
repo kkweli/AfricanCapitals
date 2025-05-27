@@ -16,7 +16,6 @@ COPY main.py .
 
 # Install Uvicorn explicitly (required for FastAPI)
 RUN pip install uvicorn[standard]
-RUN pip install pytest
 # Expose port
 EXPOSE 8000
 

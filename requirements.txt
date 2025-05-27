@@ -15,4 +15,3 @@ starlette
 typing-inspection
 typing_extensions
 uvicorn
-pytest

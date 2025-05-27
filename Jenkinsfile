@@ -1,9 +1,12 @@
 pipeline {
-    agent any
+    agent { label 'main-executor' }  // Runs on a Windows agent with Docker installed
 
     environment {
         DOCKERHUB_REPO = 'kkweli25/kkweli'
-        IMAGE_TAG = 'latest'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"  // Unique tag using build number
+        CONTAINER_NAME = 'african-capitals-api'
+        HOST_PORT = '8000'
+        CONTAINER_PORT = '8000'
     }
 
     stages {
@@ -17,22 +20,15 @@ pipeline {
             steps {
                 script {
                     retry(3) {
-                        withCredentials([usernamePassword(
-                            credentialsId: 'docker-hub-login',
-                            usernameVariable: 'DOCKER_USER',
-                            passwordVariable: 'DOCKER_PASS'
-                        )]) {
-                            bat """
-                                docker login -u %DOCKER_USER% -p %DOCKER_PASS%
-                                docker build -t ${DOCKERHUB_REPO}:${IMAGE_TAG} .
-                            """
-                        }
+                        bat """
+                            docker build -t ${DOCKERHUB_REPO}:${IMAGE_TAG} .
+                        """
                     }
                 }
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Docker Login') {
             steps {
                 script {
                     withCredentials([usernamePassword(
@@ -42,9 +38,18 @@ pipeline {
                     )]) {
                         bat """
                             docker login -u %DOCKER_USER% -p %DOCKER_PASS%
-                            docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         """
                     }
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    bat """
+                        docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                    """
                 }
             }
         }
@@ -53,17 +58,24 @@ pipeline {
             steps {
                 script {
                     bat """
-                        docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG} || echo "Image pull failed, using local image."
-                        docker stop african-capitals-api || echo "Container not running."
-                        docker rm african-capitals-api || echo "Container not found."
-                        docker run -d --name african-capitals-api -p 8000:8000 ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                        
+                        powershell -Command "if (Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue) { Write-Output 'Port 8000 is in use'; exit 1 }"
+                        echo "Port 8000 is available"
+                        echo "Pulling image..."
+                        docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        echo "Stopping existing container..."
+                        docker stop ${CONTAINER_NAME} || echo "Container not running."
+                        echo "Removing existing container..."
+                        docker rm ${CONTAINER_NAME} || echo "Container not found."
+                        echo "Running new container..."
+                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         echo "Waiting for container to initialize..."
+                        timeout /t <seconds> [/nobreak]
                         echo "Container logs:"
-                        docker logs african-capitals-api
-                        curl -v --retry 5 --retry-delay 30 http://localhost:8000/health || (
-                            echo "Health check failed" && 
-                            docker logs african-capitals-api && 
+                        docker logs ${CONTAINER_NAME}
+                        echo "Performing health check..."
+                        curl -v --retry 5 --retry-delay 30 http://localhost:${HOST_PORT}/health || (
+                            echo "Health check failed"
+                            docker logs ${CONTAINER_NAME}
                             exit 1
                         )
                     """
@@ -73,6 +85,15 @@ pipeline {
     }
 
     post {
+        success {
+            echo "Pipeline completed successfully. Application is running at http://localhost:${HOST_PORT}"
+        }
+        failure {
+            echo "Pipeline failed. Check logs for details."
+            script {
+                bat "docker logs ${CONTAINER_NAME} || echo 'No container logs available.'"
+            }
+        }
         always {
             cleanWs()
         }
