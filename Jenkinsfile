@@ -54,51 +54,58 @@ pipeline {
             }
         }
 
-        stage('Deploy to Local Docker Instance') {
+        stage('Prepare Docker Compose Environment') {
             steps {
                 script {
-                    // Compute previous tag
-                    def prevTag = ""
-                    if (env.BUILD_NUMBER.toInteger() > 1) {
-                        prevTag = (env.BUILD_NUMBER.toInteger() - 1).toString()
-                    }
-
-                    // Best practice deployment block
-                    def deployScript = """
+                    // Create .env file for Docker Compose
+                    bat """
+                        @echo off
+                        echo IMAGE_TAG=${IMAGE_TAG} > .env.deploy
+                        echo DOCKERHUB_REPO=${DOCKERHUB_REPO} >> .env.deploy
+                    """
+                    
+                    // Update docker-compose.yml to use the built image
+                    bat """
+                        @echo off
+                        (
+                            echo version: '3.8'
+                            echo.
+                            echo services:
+                            echo   api:
+                            echo     image: ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                            echo     container_name: ${CONTAINER_NAME}
+                            echo     ports:
+                            echo       - "${HOST_PORT}:${CONTAINER_PORT}"
+                            echo     env_file:
+                            echo       - .env
+                            echo     healthcheck:
+                            echo       test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT}/health"]
+                            echo       interval: 30s
+                            echo       timeout: 10s
+                            echo       retries: 3
+                            echo       start_period: 5s
+                            echo     restart: unless-stopped
+                        ) > docker-compose.deploy.yml
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy with Docker Compose') {
+            steps {
+                script {
+                    // Deploy using Docker Compose
+                    bat """
+                        @echo off
+                        docker-compose -f docker-compose.deploy.yml --env-file .env.deploy down
+                        docker-compose -f docker-compose.deploy.yml --env-file .env.deploy up -d
+                    """
+                    
+                    // Health check loop
+                    bat """
                         @echo off
                         setlocal enabledelayedexpansion
-
-                        REM -- Ensure Docker network exists
-                        docker network inspect african-capitals-net >nul 2>&1
-                        if %errorlevel% neq 0 (
-                            docker network create african-capitals-net
-                            echo Created docker network 'african-capitals-net'
-                        ) else (
-                            echo Docker network 'african-capitals-net' exists
-                        )
-
-                        REM -- Stop and remove any running container with this name
-                        docker stop ${CONTAINER_NAME}
-                        docker rm ${CONTAINER_NAME}
-
-                    """
-                    if (prevTag != "") {
-                        deployScript += """
-                        REM -- Try to remove the previous image
-                        docker rmi ${DOCKERHUB_REPO}:${prevTag}
-                        """
-                    }
-
-                    deployScript += """
-                        REM -- Run the new container
-                        docker run -d ^
-                        --name ${CONTAINER_NAME} ^
-                        --network african-capitals-net ^
-                        --restart unless-stopped ^
-                        -p ${HOST_PORT}:${CONTAINER_PORT} ^
-                        ${DOCKERHUB_REPO}:${IMAGE_TAG}
-
-                        REM -- Health check loop
+                        
                         set MAX_RETRIES=15
                         set RETRY_DELAY=5
                         set RETRY_COUNT=0
@@ -107,22 +114,36 @@ pipeline {
                         curl.exe --max-time 10 http://localhost:${HOST_PORT}/health
                         if %errorlevel%==0 (
                             echo Health check passed
-                            goto cleanup_images
+                            goto :end
                         )
 
                         set /a RETRY_COUNT+=1
                         if %RETRY_COUNT% geq %MAX_RETRIES% (
                             echo Health check failed after %MAX_RETRIES% attempts
                             echo Container logs:
-                            docker logs ${CONTAINER_NAME}
+                            docker-compose -f docker-compose.deploy.yml logs
                             exit /b 1
                         )
 
                         echo Attempt %RETRY_COUNT%/%MAX_RETRIES%: Application not ready, retrying in %RETRY_DELAY%s
                         timeout /t %RETRY_DELAY% /nobreak >nul
-                        goto healthcheck_retry
-
-                        :cleanup_images
+                        goto :healthcheck_retry
+                        
+                        :end
+                        endlocal
+                    """
+                }
+            }
+        }
+        
+        stage('Cleanup Old Images') {
+            steps {
+                script {
+                    // Remove old images to save disk space
+                    bat """
+                        @echo off
+                        setlocal enabledelayedexpansion
+                        
                         REM -- Remove all but the last two images for this repo
                         set COUNT=0
                         for /f "skip=1 tokens=1" %%i in ('docker images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" --filter=reference=${DOCKERHUB_REPO}:* --no-trunc ^| sort /R') do (
@@ -134,8 +155,6 @@ pipeline {
                         )
                         endlocal
                     """
-
-                    bat(deployScript)
                 }
             }
         }
@@ -149,10 +168,12 @@ pipeline {
         failure {
             echo "Pipeline failed. Check logs for details."
             script {
-                bat "docker logs ${CONTAINER_NAME} || echo 'No container logs available.'"
+                bat "docker-compose -f docker-compose.deploy.yml logs || echo 'No container logs available.'"
             }
         }
         always {
+            // Archive the deployment files for reference
+            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env.deploy', allowEmptyArchive: true
             cleanWs()
         }
     }
