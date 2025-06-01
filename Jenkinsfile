@@ -64,12 +64,50 @@ pipeline {
                         echo DOCKERHUB_REPO=${DOCKERHUB_REPO} >> .env.deploy
                     """
                     
+                    // Detect host timezone and map to IANA timezone
+                    def hostTimezone = bat(script: 'powershell -Command "[System.TimeZoneInfo]::Local.Id"', returnStdout: true).trim()
+                    def ianaTimezone = "Etc/UTC" // Default fallback
+                    
+                    // Map Windows timezone ID to IANA timezone
+                    def timezoneMap = [
+                        "E. Africa Standard Time": "Africa/Nairobi",
+                        "Eastern Standard Time": "America/New_York",
+                        "Pacific Standard Time": "America/Los_Angeles",
+                        "Central European Standard Time": "Europe/Budapest",
+                        "GMT Standard Time": "Europe/London",
+                        "Tokyo Standard Time": "Asia/Tokyo",
+                        "China Standard Time": "Asia/Shanghai",
+                        "India Standard Time": "Asia/Kolkata",
+                        "Central Standard Time": "America/Chicago",
+                        "Mountain Standard Time": "America/Denver",
+                        "W. Europe Standard Time": "Europe/Berlin"
+                    ]
+                    
+                    if (timezoneMap.containsKey(hostTimezone)) {
+                        ianaTimezone = timezoneMap[hostTimezone]
+                    }
+                    
+                    echo "Host timezone detected: ${hostTimezone}"
+                    echo "Using IANA timezone: ${ianaTimezone}"
+                    
+                    // Create a minimal .env file for the application with dynamic timezone
+                    bat """
+                        @echo off
+                        (
+                            echo APP_TITLE=African Capitals API
+                            echo APP_DESCRIPTION=Returns the capital cities of African countries grouped by region using the REST Countries public API.
+                            echo APP_VERSION=1.2.0
+                            echo REST_COUNTRIES_URL=https://restcountries.com/v3.1/region/africa
+                            echo LOG_LEVEL=INFO
+                            echo EXTERNAL_API_TIMEOUT=10
+                            echo TZ=${ianaTimezone}
+                        ) > .env
+                    """
+                    
                     // Update docker-compose.yml to use the built image
                     bat """
                         @echo off
                         (
-                            echo version: '3.8'
-                            echo.
                             echo services:
                             echo   api:
                             echo     image: ${DOCKERHUB_REPO}:${IMAGE_TAG}
@@ -78,6 +116,8 @@ pipeline {
                             echo       - "${HOST_PORT}:${CONTAINER_PORT}"
                             echo     env_file:
                             echo       - .env
+                            echo     volumes:
+                            echo       - /etc/localtime:/etc/localtime:ro
                             echo     healthcheck:
                             echo       test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT}/health"]
                             echo       interval: 30s
@@ -97,8 +137,14 @@ pipeline {
                     // Deploy using Docker Compose
                     bat """
                         @echo off
-                        docker-compose -f docker-compose.deploy.yml --env-file .env.deploy down
-                        docker-compose -f docker-compose.deploy.yml --env-file .env.deploy up -d
+                        echo "Stopping any existing containers..."
+                        docker-compose -f docker-compose.deploy.yml down || echo "No existing containers to stop"
+                        
+                        echo "Starting new containers..."
+                        docker-compose -f docker-compose.deploy.yml up -d
+                        
+                        echo "Container status:"
+                        docker ps
                     """
                     
                     // Health check loop
@@ -106,30 +152,33 @@ pipeline {
                         @echo off
                         setlocal enabledelayedexpansion
                         
+                        echo "Starting health check..."
                         set MAX_RETRIES=15
                         set RETRY_DELAY=5
                         set RETRY_COUNT=0
 
                         :healthcheck_retry
+                        echo "Attempt %RETRY_COUNT%/%MAX_RETRIES%: Checking health endpoint..."
                         curl.exe --max-time 10 http://localhost:${HOST_PORT}/health
                         if %errorlevel%==0 (
-                            echo Health check passed
+                            echo "Health check passed!"
                             goto :end
                         )
 
                         set /a RETRY_COUNT+=1
                         if %RETRY_COUNT% geq %MAX_RETRIES% (
-                            echo Health check failed after %MAX_RETRIES% attempts
-                            echo Container logs:
-                            docker-compose -f docker-compose.deploy.yml logs
+                            echo "Health check failed after %MAX_RETRIES% attempts"
+                            echo "Container logs:"
+                            docker logs ${CONTAINER_NAME}
                             exit /b 1
                         )
 
-                        echo Attempt %RETRY_COUNT%/%MAX_RETRIES%: Application not ready, retrying in %RETRY_DELAY%s
+                        echo "Application not ready, retrying in %RETRY_DELAY% seconds..."
                         timeout /t %RETRY_DELAY% /nobreak >nul
                         goto :healthcheck_retry
                         
                         :end
+                        echo "Deployment successful!"
                         endlocal
                     """
                 }
@@ -168,13 +217,19 @@ pipeline {
         failure {
             echo "Pipeline failed. Check logs for details."
             script {
-                bat "docker-compose -f docker-compose.deploy.yml logs || echo 'No container logs available.'"
+                bat """
+                    @echo off
+                    echo "Attempting to retrieve container logs..."
+                    docker logs ${CONTAINER_NAME} || echo "No container logs available."
+                """
             }
         }
         always {
             // Archive the deployment files for reference
-            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env.deploy', allowEmptyArchive: true
-            cleanWs()
+            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy', allowEmptyArchive: true
+            
+            // Don't immediately clean workspace to allow for debugging
+            echo "Workspace preserved for debugging. Clean manually if needed."
         }
     }
 }
