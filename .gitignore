@@ -1,6 +1,6 @@
 # Ignore Python virtual environment
 venv/
-
+.gitignore
 # Ignore Qodo files
 *.qodo
 *.qodo.*

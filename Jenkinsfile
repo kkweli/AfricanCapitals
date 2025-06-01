@@ -37,7 +37,7 @@ pipeline {
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
                         bat """
-                            docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+                            echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
                         """
                     }
                 }
@@ -57,77 +57,84 @@ pipeline {
         stage('Deploy to Local Docker Instance') {
             steps {
                 script {
-                    // Compute previous tag; Jenkinsfile Groovy uses Integer arithmetic
+                    // Compute previous tag
                     def prevTag = ""
                     if (env.BUILD_NUMBER.toInteger() > 1) {
                         prevTag = (env.BUILD_NUMBER.toInteger() - 1).toString()
                     }
 
-                    // Build deploy script with optional previous image deletion
+                    // Best practice deployment block
                     def deployScript = """
                         @echo off
+                        setlocal enabledelayedexpansion
 
-                        REM -- Try to stop the container
+                        REM -- Ensure Docker network exists
+                        docker network inspect african-capitals-net >nul 2>&1
+                        if %errorlevel% neq 0 (
+                            docker network create african-capitals-net
+                            echo Created docker network 'african-capitals-net'
+                        ) else (
+                            echo Docker network 'african-capitals-net' exists
+                        )
+
+                        REM -- Stop and remove any running container with this name
                         docker stop ${CONTAINER_NAME}
-                        if errorlevel 1 (
-                            echo No running container named '${CONTAINER_NAME}' to stop.
-                        ) else (
-                            echo Stopped existing container '${CONTAINER_NAME}'.
-                        )
-
-                        REM -- Try to remove the container
                         docker rm ${CONTAINER_NAME}
-                        if errorlevel 1 (
-                            echo No container named '${CONTAINER_NAME}' to remove.
-                        ) else (
-                            echo Removed container '${CONTAINER_NAME}'.
-                        )
+
                     """
                     if (prevTag != "") {
                         deployScript += """
                         REM -- Try to remove the previous image
                         docker rmi ${DOCKERHUB_REPO}:${prevTag}
-                        if errorlevel 1 (
-                            echo No previous image '${DOCKERHUB_REPO}:${prevTag}' to remove.
-                        ) else (
-                            echo Removed previous image '${DOCKERHUB_REPO}:${prevTag}'.
-                        )
-                        """
-                    } else {
-                        deployScript += """
-                        REM -- First build, no previous image to remove.
                         """
                     }
-                    deployScript += """
-                        REM -- Start new container
-                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} ${DOCKERHUB_REPO}:${IMAGE_TAG}
 
-                        REM -- Simple health check loop
+                    deployScript += """
+                        REM -- Run the new container
+                        docker run -d ^
+                        --name ${CONTAINER_NAME} ^
+                        --network african-capitals-net ^
+                        --restart unless-stopped ^
+                        -p ${HOST_PORT}:${CONTAINER_PORT} ^
+                        ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                        REM -- Health check loop
                         set MAX_RETRIES=15
                         set RETRY_DELAY=5
                         set RETRY_COUNT=0
 
                         :healthcheck_retry
-                        curl.exe --max-time 10 http://localhost:%HOST_PORT%/health >nul 2>&1
+                        curl.exe --max-time 10 http://localhost:${HOST_PORT}/health
                         if %errorlevel%==0 (
                             echo Health check passed
-                            exit /b 0
+                            goto cleanup_images
                         )
 
                         set /a RETRY_COUNT+=1
                         if %RETRY_COUNT% geq %MAX_RETRIES% (
                             echo Health check failed after %MAX_RETRIES% attempts
                             echo Container logs:
-                            docker logs %CONTAINER_NAME%
+                            docker logs ${CONTAINER_NAME}
                             exit /b 1
                         )
 
                         echo Attempt %RETRY_COUNT%/%MAX_RETRIES%: Application not ready, retrying in %RETRY_DELAY%s
                         timeout /t %RETRY_DELAY% /nobreak >nul
                         goto healthcheck_retry
+
+                        :cleanup_images
+                        REM -- Remove all but the last two images for this repo
+                        set COUNT=0
+                        for /f "skip=1 tokens=1" %%i in ('docker images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" --filter=reference=${DOCKERHUB_REPO}:* --no-trunc ^| sort /R') do (
+                            set /a COUNT+=1
+                            if !COUNT! gtr 2 (
+                                echo Removing old image ID: %%i
+                                docker rmi -f %%i
+                            )
+                        )
+                        endlocal
                     """
 
-                    // Actually call BAT script
                     bat(deployScript)
                 }
             }

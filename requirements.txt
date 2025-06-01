@@ -9,7 +9,9 @@ httpcore
 httpx
 idna
 pydantic
+pydantic-settings
 pydantic_core
+python-dotenv
 sniffio
 starlette
 typing-inspection

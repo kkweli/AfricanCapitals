@@ -1,78 +1,85 @@
 # African Capitals API
 
-This project provides a simple REST API to retrieve the capital cities of African countries, grouped and ordered by their subregions (Northern, Western, Eastern, Southern, and Central Africa). The data is sourced in real-time from the free [REST Countries API](https://restcountries.com/).
+A FastAPI application that provides information about African countries and their capital cities, grouped by region.
 
 ## Features
 
-- **/african-capitals**: Returns a list of African countries and their capitals, grouped by subregion.
-- **/health**: Simple health check endpoint to verify the API is running.
+- Retrieves data from the REST Countries API
+- Groups countries by region
+- Provides health check endpoint
+- Structured logging
+- Docker support for easy deployment
 
-## Architecture
+## Project Structure
 
-- **FastAPI**: Lightweight, high-performance Python web framework for building APIs.
-- **httpx**: Async HTTP client for fetching data from the REST Countries API.
-- **Docker**: Containerization for easy deployment and reproducibility.
-
-### Data Flow Diagram
-
-```mermaid
-flowchart TD
-    User[User/API Client] -->|HTTP Request| FastAPI[FastAPI App]
-    FastAPI -->|Fetches Data| RestCountries[REST Countries API]
-    FastAPI -->|Returns JSON| User
+```
+.
+├── app/
+│   ├── core/           # Core functionality (config, logging)
+│   ├── middleware/     # Custom middleware
+│   ├── routers/        # API route definitions
+│   └── services/       # Business logic
+├── .env.example        # Example environment variables
+├── Dockerfile          # Docker configuration
+├── docker-compose.yml  # Docker Compose configuration
+├── requirements.txt    # Python dependencies
+└── run.py              # Application entry point
 ```
 
-## Usage
+## Getting Started
+
+### Prerequisites
+
+- Python 3.9+
+- Docker (optional)
 
 ### Local Development
 
-1. **Clone the repository**
-    ```bash
-    git clone <your-repo-url>
-    cd <your-repo-directory>
-    ```
+1. Clone the repository
+2. Create a virtual environment:
+   ```
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+4. Create a `.env` file from the example:
+   ```
+   cp .env.example .env
+   ```
+5. Run the application:
+   ```
+   python run.py
+   ```
 
-2. **Create and activate a virtual environment**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
+### Docker Deployment
 
-3. **Install dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
+1. Build and run with Docker Compose:
+   ```
+   docker-compose up -d
+   ```
 
-4. **Run the API**
-    ```bash
-    uvicorn main:app --reload
-    ```
+## API Endpoints
 
-5. **Access the API**
-    - Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-    - Health check: [http://localhost:8000/health](http://localhost:8000/health)
-    - Capitals endpoint: [http://localhost:8000/african-capitals](http://localhost:8000/african-capitals)
+- `GET /health` - Health check endpoint
+- `GET /african-capitals` - Get African countries and their capitals grouped by region
 
-### Docker
+## Scaling and Production Readiness
 
-1. **Build the Docker image**
-    ```bash
-    docker build -t african-capitals-api .
-    ```
+This API has been designed with the following production-ready features:
 
-2. **Run the container**
-    ```bash
-    docker run -p 8000:8000 african-capitals-api
-    ```
+- Structured logging with request IDs
+- Proper error handling and timeouts
+- Environment-based configuration
+- Docker containerization
+- Health checks
+- Separation of concerns (routers, services, etc.)
 
-## Endpoints
-
-- `GET /african-capitals`  
-  Returns African countries and their capitals, grouped by region.
-
-- `GET /health`  
-  Simple health check endpoint.
-
-## License
-
-This project is open source and free to use.
+Future phases will include:
+- Caching with Redis
+- Rate limiting
+- Authentication
+- Metrics collection
+- Horizontal scaling support
