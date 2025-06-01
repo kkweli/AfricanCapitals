@@ -101,6 +101,9 @@ pipeline {
                             echo LOG_LEVEL=INFO
                             echo EXTERNAL_API_TIMEOUT=10
                             echo TZ=${ianaTimezone}
+                            echo CONTAINER_NAME=${CONTAINER_NAME}
+                            echo HOST_PORT=${HOST_PORT}
+                            echo CONTAINER_PORT=${CONTAINER_PORT}
                         ) > .env
                     """
                     
@@ -138,7 +141,14 @@ pipeline {
                     bat """
                         @echo off
                         echo "Stopping any existing containers..."
-                        docker-compose -f docker-compose.deploy.yml down || echo "No existing containers to stop"
+                        
+                        REM Force stop and remove the container by name regardless of docker-compose
+                        echo "Stopping container by name if it exists..."
+                        docker stop ${CONTAINER_NAME} 2>nul || echo "Container not running"
+                        docker rm ${CONTAINER_NAME} 2>nul || echo "Container not found"
+                        
+                        REM Now try docker-compose down as well
+                        docker-compose -f docker-compose.deploy.yml down || echo "No docker-compose services to stop"
                         
                         echo "Starting new containers..."
                         docker-compose -f docker-compose.deploy.yml up -d
@@ -193,15 +203,21 @@ pipeline {
                         @echo off
                         setlocal enabledelayedexpansion
                         
-                        REM -- Remove all but the last two images for this repo
-                        set COUNT=0
-                        for /f "skip=1 tokens=1" %%i in ('docker images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" --filter=reference=${DOCKERHUB_REPO}:* --no-trunc ^| sort /R') do (
+                        echo "Listing current images for repository ${DOCKERHUB_REPO}..."
+                        docker images ${DOCKERHUB_REPO} --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}"
+                        
+                        echo "Cleaning up old images..."
+                        
+                        REM Get all image IDs for our repository, sorted by creation date (newest first)
+                        for /f "tokens=1" %%i in ('docker images ${DOCKERHUB_REPO} --format "{{.ID}}" ^| sort') do (
                             set /a COUNT+=1
                             if !COUNT! gtr 2 (
-                                echo Removing old image ID: %%i
-                                docker rmi -f %%i
+                                echo "Removing old image ID: %%i"
+                                docker rmi -f %%i || echo "Could not remove image %%i, may be in use"
                             )
                         )
+                        
+                        echo "Cleanup completed"
                         endlocal
                     """
                 }
@@ -213,6 +229,15 @@ pipeline {
     post {
         success {
             echo "Pipeline completed successfully. Application is running at http://localhost:${HOST_PORT}"
+            
+            // Display running containers for verification
+            script {
+                bat """
+                    @echo off
+                    echo "Currently running containers:"
+                    docker ps
+                """
+            }
         }
         failure {
             echo "Pipeline failed. Check logs for details."
@@ -221,6 +246,9 @@ pipeline {
                     @echo off
                     echo "Attempting to retrieve container logs..."
                     docker logs ${CONTAINER_NAME} || echo "No container logs available."
+                    
+                    echo "Currently running containers:"
+                    docker ps
                 """
             }
         }
