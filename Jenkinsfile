@@ -122,7 +122,7 @@ pipeline {
                             echo     volumes:
                             echo       - /etc/localtime:/etc/localtime:ro
                             echo     healthcheck:
-                            echo       test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT}/health"]
+                            echo       test: ["CMD-SHELL", "curl -s -o /dev/null -w '%%{http_code}' http://localhost:${CONTAINER_PORT}/health | grep -q 200"]
                             echo       interval: 30s
                             echo       timeout: 10s
                             echo       retries: 3
@@ -157,7 +157,7 @@ pipeline {
                         docker ps
                     """
                     
-                    // Health check loop
+                    // Health check loop - checking for HTTP 200 status code
                     bat """
                         @echo off
                         setlocal enabledelayedexpansion
@@ -168,27 +168,34 @@ pipeline {
                         set RETRY_COUNT=0
 
                         :healthcheck_retry
-                        echo "Attempt %RETRY_COUNT%/%MAX_RETRIES%: Checking health endpoint..."
-                        curl.exe --max-time 10 http://localhost:${HOST_PORT}/health
-                        if %errorlevel%==0 (
-                            echo "Health check passed!"
+                        echo "Attempt %RETRY_COUNT%/%MAX_RETRIES%: Checking health endpoint for HTTP 200..."
+                        
+                        REM Use curl with -s (silent), -o (output to null), -w (write out status code) and check for 200
+                        for /f "tokens=*" %%s in ('curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/health') do (
+                            set HTTP_STATUS=%%s
+                        )
+                        
+                        echo "Received HTTP status: !HTTP_STATUS!"
+                        
+                        if "!HTTP_STATUS!"=="200" (
+                            echo "Health check passed with HTTP 200 OK!"
                             goto :end
                         )
 
                         set /a RETRY_COUNT+=1
                         if %RETRY_COUNT% geq %MAX_RETRIES% (
-                            echo "Health check failed after %MAX_RETRIES% attempts"
+                            echo "Health check failed after %MAX_RETRIES% attempts. Last status: !HTTP_STATUS!"
                             echo "Container logs:"
                             docker logs ${CONTAINER_NAME}
                             exit /b 1
                         )
 
-                        echo "Application not ready, retrying in %RETRY_DELAY% seconds..."
+                        echo "Application not ready (status: !HTTP_STATUS!), retrying in %RETRY_DELAY% seconds..."
                         timeout /t %RETRY_DELAY% /nobreak >nul
                         goto :healthcheck_retry
                         
                         :end
-                        echo "Deployment successful!"
+                        echo "Deployment successful with healthy endpoint!"
                         endlocal
                     """
                 }
