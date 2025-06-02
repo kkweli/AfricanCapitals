@@ -17,3 +17,6 @@ starlette
 typing-inspection
 typing_extensions
 uvicorn
+aiofiles
+jinja2
+geojson

@@ -1,13 +1,15 @@
-# African Capitals API
+# African Capitals API with WebGL Map Visualization
 
-A FastAPI application that provides information about African countries and their capital cities, grouped by region.
+A FastAPI application that provides information about African countries and their capital cities, with an interactive WebGL map visualization and economic data.
 
 ## Features
 
-- Retrieves data from the REST Countries API
-- Groups countries by region
-- Provides health check endpoint
-- Structured logging
+- Retrieves data from the REST Countries API and World Bank API
+- Interactive WebGL map showing African countries and capitals
+- Economic data including GDP, population, and key sectors
+- Country-specific detailed profiles with visualizations
+- Caching with Redis for improved performance
+- Structured logging and error handling
 - Docker support for easy deployment
 
 ## Project Structure
@@ -15,12 +17,16 @@ A FastAPI application that provides information about African countries and thei
 ```
 .
 ├── app/
+│   ├── cache/          # Cache directory for GeoJSON data
 │   ├── core/           # Core functionality (config, logging)
 │   ├── middleware/     # Custom middleware
 │   ├── routers/        # API route definitions
-│   └── services/       # Business logic
+│   ├── services/       # Business logic
+│   └── static/         # WebGL frontend files
+│       ├── index.html  # Main HTML page
+│       └── js/         # JavaScript files for WebGL map
 ├── .env.example        # Example environment variables
-├── Dockerfile          # Docker configuration
+��── Dockerfile          # Docker configuration
 ├── docker-compose.yml  # Docker Compose configuration
 ├── requirements.txt    # Python dependencies
 └── run.py              # Application entry point
@@ -65,6 +71,22 @@ A FastAPI application that provides information about African countries and thei
 
 - `GET /health` - Health check endpoint
 - `GET /african-capitals` - Get African countries and their capitals grouped by region
+- `GET /api/v1/economic-data` - Get economic data for all African countries
+- `GET /api/v1/economic-data/{country_code}` - Get economic data for a specific country
+- `GET /api/v1/map-data` - Get GeoJSON data for all African countries
+- `GET /api/v1/map-data/{country_code}` - Get GeoJSON data for a specific country
+- `GET /api/v1/country-profile/{country_code}` - Get comprehensive profile for a specific country
+
+## WebGL Map Visualization
+
+The application includes an interactive WebGL map that visualizes:
+
+- African countries with their boundaries
+- Capital cities with markers
+- Economic data with hover tooltips
+- Detailed country profiles with key sector breakdowns
+
+To access the map, simply open the root URL in your browser after starting the application.
 
 ## Scaling and Production Readiness
 
