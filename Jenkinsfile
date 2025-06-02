@@ -122,7 +122,7 @@ pipeline {
                             echo     volumes:
                             echo       - /etc/localtime:/etc/localtime:ro
                             echo     healthcheck:
-                            echo       test: ["CMD-SHELL", "curl -s -o /dev/null -w '%%{http_code}' http://localhost:${CONTAINER_PORT}/health | grep -q 200"]
+                            echo       test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/health"]
                             echo       interval: 30s
                             echo       timeout: 10s
                             echo       retries: 3
@@ -157,7 +157,7 @@ pipeline {
                         docker ps
                     """
                     
-                    // Health check loop - checking for HTTP 200 status code
+                    // Health check loop - using a simpler approach for Windows
                     bat """
                         @echo off
                         setlocal enabledelayedexpansion
@@ -168,12 +168,17 @@ pipeline {
                         set RETRY_COUNT=0
 
                         :healthcheck_retry
-                        echo "Attempt %RETRY_COUNT%/%MAX_RETRIES%: Checking health endpoint for HTTP 200..."
+                        echo "Attempt !RETRY_COUNT!/%MAX_RETRIES%: Checking health endpoint..."
                         
-                        REM Use curl with -s (silent), -o (output to null), -w (write out status code) and check for 200
-                        for /f "tokens=*" %%s in ('curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/health') do (
-                            set HTTP_STATUS=%%s
-                        )
+                        REM Create a temporary file for curl output
+                        set TEMP_FILE=%TEMP%\\health_check_response.txt
+                        
+                        REM Use curl to check the health endpoint and save status code to file
+                        curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/health > %TEMP_FILE%
+                        
+                        REM Read the status code from the file
+                        set /p HTTP_STATUS=<%TEMP_FILE%
+                        del %TEMP_FILE%
                         
                         echo "Received HTTP status: !HTTP_STATUS!"
                         
@@ -183,7 +188,7 @@ pipeline {
                         )
 
                         set /a RETRY_COUNT+=1
-                        if %RETRY_COUNT% geq %MAX_RETRIES% (
+                        if !RETRY_COUNT! geq %MAX_RETRIES% (
                             echo "Health check failed after %MAX_RETRIES% attempts. Last status: !HTTP_STATUS!"
                             echo "Container logs:"
                             docker logs ${CONTAINER_NAME}
@@ -214,6 +219,9 @@ pipeline {
                         docker images ${DOCKERHUB_REPO} --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}"
                         
                         echo "Cleaning up old images..."
+                        
+                        REM Initialize counter
+                        set COUNT=0
                         
                         REM Get all image IDs for our repository, sorted by creation date (newest first)
                         for /f "tokens=1" %%i in ('docker images ${DOCKERHUB_REPO} --format "{{.ID}}" ^| sort') do (
