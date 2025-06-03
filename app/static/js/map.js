@@ -1,9 +1,19 @@
-// Initialize the map centered on Africa
-const map = L.map('map').setView([0, 20], 3);
+// Define Africa bounding box: [southWest, northEast]
+const africaBounds = [
+    [-35, -20], // Southwest (approx. Cape Town)
+    [38, 55]    // Northeast (approx. Cairo)
+];
 
-// Add OpenStreetMap tile layer
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// Initialize the map centered on Africa
+const map = L.map('map', {
+    maxBounds: africaBounds,
+    maxBoundsViscosity: 1.0
+}).setView([0, 20], 4);
+
+// Use Esri World Imagery for high-res, 3D-like effect
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    maxZoom: 18
 }).addTo(map);
 
 // Store country data and GeoJSON layers
@@ -15,183 +25,195 @@ function formatNumber(num) {
     return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "N/A";
 }
 
-// Create popup content from template
-function createPopupContent(country) {
-    const template = document.getElementById('popup-template').innerHTML;
-    const sectorTemplate = document.getElementById('sector-template').innerHTML;
-    
-    // Format sectors HTML
-    let sectorsHtml = '';
-    if (country.economy && country.economy.key_sectors) {
-        country.economy.key_sectors.forEach(sector => {
-            sectorsHtml += sectorTemplate
-                .replace('{name}', sector.name)
-                .replace('{value}', sector.value)
-                .replace('{percentage}', sector.contribution);
-        });
-    }
-    
-    // Format GDP
-    const gdp = country.economy && country.economy.gdp 
-        ? (country.economy.gdp / 1000000000).toFixed(2) 
-        : 'N/A';
-    
-    // Format population
-    const population = country.demographics && country.demographics.population 
-        ? formatNumber(country.demographics.population) 
-        : 'N/A';
-    
-    // Replace template placeholders
-    return template
-        .replace('{country}', country.country.name)
-        .replace('{capital}', country.country.capital)
-        .replace('{population}', population)
-        .replace('{gdp}', gdp)
-        .replace('{sectors}', sectorsHtml);
-}
-
 // Update country info sidebar
-function updateCountryInfo(country) {
+function updateCountryInfo(countryData) {
     const infoDiv = document.getElementById('country-info');
     
-    if (!country) {
-        infoDiv.innerHTML = '<p>Click on a country to see details</p>';
+    // If no data, show default message
+    if (!countryData || !countryData.country) {
+        infoDiv.innerHTML = '<p>Select a country from the dropdown to see details</p>';
         return;
     }
-    
-    // Format GDP
-    const gdp = country.economy && country.economy.gdp 
-        ? (country.economy.gdp / 1000000000).toFixed(2) 
+
+    // Format GDP to billions with 2 decimal places
+    const gdp = countryData.economy?.gdp 
+        ? `$${(countryData.economy.gdp / 1000000000).toFixed(2)} billion`
         : 'N/A';
-    
-    // Format population
-    const population = country.demographics && country.demographics.population 
-        ? formatNumber(country.demographics.population) 
+
+    // Format population with commas
+    const population = countryData.demographics?.population
+        ? formatNumber(countryData.demographics.population)
         : 'N/A';
-    
-    let html = `
-        <h5>${country.country.name}</h5>
-        <p><strong>Capital:</strong> ${country.country.capital}</p>
-        <p><strong>Region:</strong> ${country.country.region || 'N/A'}</p>
-        <p><strong>Population:</strong> ${population}</p>
-        <p><strong>GDP:</strong> $${gdp} billion</p>
+
+    // Format GDP growth
+    const gdpGrowth = countryData.economy?.gdp_growth
+        ? `${countryData.economy.gdp_growth.toFixed(1)}%`
+        : 'N/A';
+
+    // Get flag URL
+    const flagUrl = countryData.country.code
+        ? `https://flagcdn.com/64x48/${countryData.country.code.toLowerCase()}.png`
+        : '';
+
+    // Generate sectors HTML if available
+    const sectorsHtml = countryData.economy?.key_sectors
+        ? `<div class="sectors-list mt-3">
+            <h5>Key Economic Sectors:</h5>
+            ${countryData.economy.key_sectors.map(sector => `
+                <div class="sector-item mb-2">
+                    <div><strong>${sector.name}</strong></div>
+                    <div class="sector-bar">
+                        <div class="sector-fill" style="width: ${sector.contribution}%"></div>
+                    </div>
+                    <small>$${sector.value} billion (${sector.contribution}% of GDP)</small>
+                </div>
+            `).join('')}
+        </div>`
+        : '';
+
+    // Update the info div with all country information
+    infoDiv.innerHTML = `
+        <div class="country-details">
+            ${flagUrl ? `<img src="${flagUrl}" alt="Flag of ${countryData.country.name}" 
+                style="float:right;margin:0 0 10px 10px;border:1px solid #ddd;">` : ''}
+            <h4>${countryData.country.name}</h4>
+            <p><strong>Capital:</strong> ${countryData.country.capital}</p>
+            <p><strong>Region:</strong> ${countryData.country.region}</p>
+            <p><strong>Population:</strong> ${population}</p>
+            <p><strong>Population Growth:</strong> ${countryData.demographics.growth_rate.toFixed(1)}%</p>
+            <p><strong>Median Age:</strong> ${countryData.demographics.median_age} years</p>
+            <p><strong>GDP:</strong> ${gdp}</p>
+            <p><strong>GDP Growth:</strong> ${gdpGrowth}</p>
+            <p><strong>Currency:</strong> ${countryData.economy.currency}</p>
+            ${sectorsHtml}
+        </div>
     `;
-    
-    if (country.economy && country.economy.key_sectors) {
-        html += '<h6>Key Economic Sectors:</h6><ul>';
-        country.economy.key_sectors.forEach(sector => {
-            html += `<li>${sector.name}: ${sector.contribution}% ($${sector.value} billion)</li>`;
+}
+
+// Fetch and display country profile
+function fetchCountryProfile(countryCode) {
+    // Always fetch fresh data to ensure up-to-date info
+    fetch(`/api/v1/country-profile/${countryCode}`)
+        .then(resp => resp.json())
+        .then(profile => {
+            countriesData[countryCode] = profile;
+            console.log(profile); // Add this line
+            updateCountryInfo(profile);
+        })
+        .catch(() => {
+            updateCountryInfo(null);
         });
-        html += '</ul>';
-    }
-    
-    infoDiv.innerHTML = html;
 }
 
-// Fetch GeoJSON data for all African countries
-async function fetchMapData() {
-    try {
-        const response = await fetch('/api/v1/map-data');
-        const geojsonData = await response.json();
-        
-        // Add GeoJSON layer to map
-        const geojsonLayer = L.geoJSON(geojsonData, {
-            style: {
-                weight: 1,
-                opacity: 1,
-                color: '#666',
-                fillOpacity: 0.3,
-                fillColor: '#4CAF50'
-            },
-            onEachFeature: function(feature, layer) {
-                const countryCode = feature.properties.ISO_A2;
-                countryLayers[countryCode] = layer;
-                
-                // Add hover effect
-                layer.on({
-                    mouseover: function(e) {
-                        layer.setStyle({
-                            weight: 2,
-                            fillOpacity: 0.5
+// Fetch map data and initialize countries layers
+function fetchMapData() {
+    fetch('/api/v1/map-data')
+        .then(response => response.json())
+        .then(data => {
+            L.geoJSON(data, {
+                onEachFeature: (feature, layer) => {
+                    const iso2 = feature.properties.ISO_A2;
+                    if (!iso2) return;
+                    const countryCode = iso2.toUpperCase();
+                    countryLayers[countryCode] = layer;
+
+                    // Show country name as tooltip
+                    const countryName = feature.properties.NAME;
+                    layer.bindTooltip(`<strong>${countryName}</strong>`, {
+                        direction: 'center',
+                        permanent: true,
+                        className: 'country-label'
+                    });
+
+                    // Add flag marker at centroid
+                    const centroid = layer.getBounds().getCenter();
+                    const flagUrl = `https://flagcdn.com/32x24/${countryCode.toLowerCase()}.png`;
+                    const flagIcon = L.icon({
+                        iconUrl: flagUrl,
+                        iconSize: [32, 24],
+                        iconAnchor: [16, 12],
+                        popupAnchor: [0, -12]
+                    });
+                    L.marker(centroid, {icon: flagIcon, title: countryName, interactive: false}).addTo(map);
+
+                    // Fetch and cache country profile for select
+                    fetch(`/api/v1/country-profile/${countryCode}`)
+                        .then(resp => resp.json())
+                        .then(profile => {
+                            countriesData[countryCode] = profile;
                         });
-                    },
-                    mouseout: function(e) {
-                        geojsonLayer.resetStyle(layer);
-                    },
-                    click: function(e) {
-                        fetchCountryProfile(countryCode);
-                    }
-                });
-            }
-        }).addTo(map);
-        
-    } catch (error) {
-        console.error('Error fetching map data:', error);
-        alert('Failed to load map data. Please try again later.');
+
+                    layer.on({
+                        click: () => {
+                            map.fitBounds(layer.getBounds());
+                            fetchCountryProfile(countryCode);
+                        }
+                    });
+                }
+            }).addTo(map);
+
+            // Populate the select dropdown after all layers are added
+            populateCountrySelect();
+        });
+}
+
+// Populate country select dropdown
+function populateCountrySelect() {
+    const select = document.getElementById('country-select');
+    // Clear existing options
+    select.innerHTML = '<option value="">Select a country...</option>';
+    
+    // Sort countries by name
+    const entries = Object.entries(countryLayers).sort((a, b) => {
+        const nameA = a[1].feature.properties.NAME || '';
+        const nameB = b[1].feature.properties.NAME || '';
+        return nameA.localeCompare(nameB);
+    });
+
+    // Add country options
+    for (const [code, layer] of entries) {
+        const name = layer.feature.properties.NAME;
+        const option = document.createElement('option');
+        option.value = code;
+        option.textContent = name;
+        select.appendChild(option);
     }
 }
 
-// Fetch country profile data
-async function fetchCountryProfile(countryCode) {
-    try {
-        const response = await fetch(`/api/v1/country-profile/${countryCode}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const countryData = await response.json();
-        countriesData[countryCode] = countryData;
-        
-        // Update country info sidebar
-        updateCountryInfo(countryData);
-        
-        // Add popup to country
-        if (countryLayers[countryCode]) {
-            countryLayers[countryCode].bindPopup(
-                createPopupContent(countryData),
-                { maxWidth: 300 }
-            ).openPopup();
-        }
-        
-    } catch (error) {
-        console.error(`Error fetching country profile for ${countryCode}:`, error);
-    }
-}
-
-// Search for a country
-document.getElementById('search-btn').addEventListener('click', function() {
-    const searchTerm = document.getElementById('country-search').value.trim().toLowerCase();
-    const resultsDiv = document.getElementById('search-results');
-    
-    if (!searchTerm) {
-        resultsDiv.innerHTML = '<p>Please enter a country name</p>';
-        return;
-    }
-    
-    // Simple search through country layers
-    let found = false;
-    for (const code in countryLayers) {
-        const layer = countryLayers[code];
-        const countryName = layer.feature.properties.NAME.toLowerCase();
-        
-        if (countryName.includes(searchTerm)) {
-            // Zoom to country
-            map.fitBounds(layer.getBounds());
-            // Fetch and show country data
-            fetchCountryProfile(code);
-            found = true;
-            break;
-        }
-    }
-    
-    if (!found) {
-        resultsDiv.innerHTML = '<p>Country not found. Try another name.</p>';
-    } else {
-        resultsDiv.innerHTML = '';
-    }
-});
-
-// Initialize map on page load
+// Initialize on document ready
 document.addEventListener('DOMContentLoaded', function() {
     fetchMapData();
+
+    const countrySelect = document.getElementById('country-select');
+    if (countrySelect) {
+        countrySelect.addEventListener('change', function() {
+            const selectedCode = this.value;
+            if (!selectedCode) {
+                updateCountryInfo(null);
+                return;
+            }
+            
+            if (countryLayers[selectedCode]) {
+                // Zoom to country
+                map.fitBounds(countryLayers[selectedCode].getBounds());
+                
+                // Fetch and display country data
+                fetch(`/api/v1/country-profile/${selectedCode}`)
+                    .then(response => response.json())
+                    .then(profile => {
+                        countriesData[selectedCode] = profile;
+                        updateCountryInfo(profile);
+                        
+                        // Highlight selected country
+                        Object.values(countryLayers).forEach(layer => {
+                            layer.setStyle({ weight: 1, color: '#666' });
+                        });
+                        countryLayers[selectedCode].setStyle({
+                            weight: 2,
+                            color: '#ff7800'
+                        });
+                    });
+            }
+        });
+    }
 });
