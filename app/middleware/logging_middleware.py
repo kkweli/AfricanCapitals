@@ -1,42 +1,42 @@
 import time
 import uuid
+import asyncio
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 from app.core.logging import logger
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = str(uuid.uuid4())
-        request.state.request_id = request_id
-        
-        # Log request
-        logger.info(f"Request started: {request.method} {request.url.path} (ID: {request_id})")
-        
-        # Measure request processing time
         start_time = time.time()
         
-        # Process the request
+        # Add request timing header
+        request.state.start_time = start_time
+        request.state.request_id = request_id
+
         try:
-            response = await call_next(request)
-            process_time = time.time() - start_time
-            
-            # Log response
-            logger.info(
-                f"Request completed: {request.method} {request.url.path} "
-                f"(ID: {request_id}) - Status: {response.status_code} - "
-                f"Duration: {process_time:.3f}s"
+            response = await asyncio.wait_for(
+                call_next(request),
+                timeout=10.0  # 10 second timeout
             )
             
-            # Add custom headers
-            response.headers["X-Request-ID"] = request_id
-            response.headers["X-Process-Time"] = str(process_time)
+            process_time = time.time() - start_time
+            response.headers.update({
+                "X-Request-ID": request_id,
+                "X-Process-Time": f"{process_time:.3f}",
+                "X-Rate-Limit": "60;w=60"  # Basic rate limiting info
+            })
             
             return response
-        except Exception as e:
-            process_time = time.time() - start_time
-            logger.error(
-                f"Request failed: {request.method} {request.url.path} "
-                f"(ID: {request_id}) - Error: {str(e)} - "
-                f"Duration: {process_time:.3f}s"
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "Request timed out"}
             )
-            raise
+        except Exception as e:
+            logger.error(f"Request failed: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"}
+            )

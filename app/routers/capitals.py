@@ -4,7 +4,33 @@ from app.core.logging import logger
 
 router = APIRouter()
 
-@router.get("/african-capitals", summary="Get capital cities of African countries grouped by region")
+@router.get("/african-capitals", 
+    summary="Get capital cities of African countries grouped by region",
+    responses={
+        200: {
+            "description": "Successfully retrieved African capitals",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "african_capitals_by_region": {
+                            "Northern Africa": [
+                                {"country": "Egypt", "capital": "Cairo"},
+                                {"country": "Morocco", "capital": "Rabat"}
+                            ],
+                            "Western Africa": [
+                                {"country": "Nigeria", "capital": "Abuja"},
+                                {"country": "Ghana", "capital": "Accra"}
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Service temporarily unavailable"
+        }
+    }
+)
 async def get_african_capitals(country_service: CountryService = Depends()):
     """
     Fetches African countries from the REST Countries API and returns their names and capitals,

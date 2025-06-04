@@ -23,7 +23,38 @@ async def get_economic_data(
             detail="Unable to fetch economic data. Service may be temporarily unavailable."
         )
 
-@router.get("/economic-data/{country_code}", summary="Get economic data for a specific African country")
+@router.get("/economic-data/{country_code}",
+    summary="Get economic data for a specific African country",
+    responses={
+        200: {
+            "description": "Successfully retrieved economic data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "country": {
+                            "name": "Kenya",
+                            "code": "KE",
+                            "capital": "Nairobi",
+                            "region": "Eastern Africa"
+                        },
+                        "economy": {
+                            "gdp": 98.84,
+                            "gdp_growth": 5.6,
+                            "currency": "Kenyan Shilling",
+                            "key_sectors": [
+                                {
+                                    "name": "Agriculture",
+                                    "value": 34.2,
+                                    "contribution": 35
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_country_economic_data(
     country_code: str = Path(..., description="ISO 3166-1 alpha-2 or alpha-3 country code"),
     economic_service: EconomicDataService = Depends()

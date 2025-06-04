@@ -1,15 +1,25 @@
 pipeline {
-    agent { label 'main-executor' }  // Runs on a Windows agent with Docker installed
+    agent { label 'main-executor' }
 
     environment {
         DOCKERHUB_REPO = 'kkweli25/kkweli'
-        IMAGE_TAG = "${env.BUILD_NUMBER}"  // Unique tag using build number
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'african-capitals-api'
         HOST_PORT = '8000'
         CONTAINER_PORT = '8000'
+        TRIVY_IMAGE = 'aquasec/trivy:0.51.1'
     }
 
     stages {
+        stage('Pull Trivy Image') {
+            steps {
+                script {
+                    // Pull Trivy image only if not present or version changes
+                    bat "docker pull %TRIVY_IMAGE%"
+                }
+            }
+        }
+
         stage('Checkout Source') {
             steps {
                 git url: 'https://github.com/kkweli/AfricanCapitals.git', branch: 'main'
@@ -51,6 +61,20 @@ pipeline {
                         docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
                     """
                 }
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    // Scan the built image for vulnerabilities
+                    bat """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
+                            -v %CD%:/root/.cache/ ^
+                            %TRIVY_IMAGE% image --exit-code 1 --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                    """
+                }
+                archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
             }
         }
 
@@ -238,14 +262,11 @@ pipeline {
                 }
             }
         }
-    
     }
 
     post {
         success {
             echo "Pipeline completed successfully. Application is running at http://localhost:${HOST_PORT}"
-            
-            // Display running containers for verification
             script {
                 bat """
                     @echo off
@@ -261,17 +282,13 @@ pipeline {
                     @echo off
                     echo "Attempting to retrieve container logs..."
                     docker logs ${CONTAINER_NAME} || echo "No container logs available."
-                    
                     echo "Currently running containers:"
                     docker ps
                 """
             }
         }
         always {
-            // Archive the deployment files for reference
             archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy', allowEmptyArchive: true
-            
-            // Don't immediately clean workspace to allow for debugging
             echo "Workspace preserved for debugging. Clean manually if needed."
         }
     }

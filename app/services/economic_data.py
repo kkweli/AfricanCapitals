@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.services.countries import CountryService
 from app.services.geo_data import GeoDataService
+from app.utils.async_utils import gather_with_concurrency
 
 class EconomicDataService:
     """
@@ -55,19 +56,20 @@ class EconomicDataService:
         }
     
     async def fetch_world_bank_data(self, country_code, indicator):
-        """Fetch data from World Bank API"""
-        url = self.world_bank_api_url.format(country_code=country_code, indicator=indicator)
-        logger.debug(f"Fetching World Bank data from {url}")
+        """Fetch data from World Bank API with retry and timeout"""
+        url = self.world_bank_api_url.format(
+            country_code=country_code, 
+            indicator=indicator
+        )
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                response = await client.get(url, timeout=self.timeout)
+                response = await client.get(url)
                 response.raise_for_status()
                 data = response.json()
                 
-                # World Bank API returns a list with metadata as first element and data as second
                 if len(data) > 1 and data[1] and len(data[1]) > 0:
-                    return data[1][0]["value"]
+                    return data[1][0].get("value")
                 return None
             except Exception as e:
                 logger.error(f"Error fetching World Bank data: {str(e)}")
@@ -148,22 +150,47 @@ class EconomicDataService:
         return result
     
     async def get_country_profile(self, country_code):
-        """
-        Fetches a comprehensive profile for a specific country
-        """
-        # Get economic data
-        economic_data = await self.get_country_economic_data(country_code)
-        if not economic_data:
-            return None
+        """Fetch country profile with concurrent requests"""
+        try:
+            indicators = [
+                self.fetch_world_bank_data(country_code, ind)
+                for ind in self.indicators.values()
+            ]
             
-        # Get geographic data
-        geo_data = await self.geo_service.get_country_geojson(country_code)
-        
-        # Combine data for complete profile
-        return {
-            **economic_data,
-            "geography": {
-                "boundaries": geo_data.get("features", [{}])[0].get("geometry") if geo_data else {},
-                "capital_coordinates": economic_data.get("country", {}).get("capital_coordinates", [0, 0])
+            # Fetch all indicators concurrently with timeout
+            results = await gather_with_concurrency(
+                n=3,  # Max 3 concurrent requests
+                timeout=5,  # 5 second timeout
+                *indicators
+            )
+            
+            # Process results
+            gdp, gdp_growth, population, population_growth = results
+            
+            # Get country data
+            country_data = await self.country_service.get_country_data(country_code)
+            if not country_data:
+                return None
+                
+            return {
+                "country": {
+                    "name": country_data.get("name", {}).get("common"),
+                    "code": country_code,
+                    "capital": country_data.get("capital", [""])[0],
+                    "region": country_data.get("subregion")
+                },
+                "economy": {
+                    "gdp": gdp,
+                    "gdp_growth": gdp_growth,
+                    "currency": next(iter(country_data.get("currencies", {}).keys()), None),
+                    "key_sectors": self.key_sectors.get(country_code, self.key_sectors["default"])
+                },
+                "demographics": {
+                    "population": population,
+                    "growth_rate": population_growth,
+                    "median_age": country_data.get("median_age", 25)
+                }
             }
-        }
+        except Exception as e:
+            logger.error(f"Error getting country profile: {str(e)}")
+            return None

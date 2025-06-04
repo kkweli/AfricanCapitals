@@ -90,33 +90,37 @@ function updateCountryInfo(countryData) {
     `;
 }
 
+// Add a base URL constant at the top of your file
+const API_BASE_URL = 'http://localhost:8000/api/v1';
+
 // Fetch and display country profile
 function fetchCountryProfile(countryCode) {
     // Always fetch fresh data to ensure up-to-date info
-    fetch(`/api/v1/country-profile/${countryCode}`)
+    fetch(`${API_BASE_URL}/country-profile/${countryCode}`)
         .then(resp => resp.json())
         .then(profile => {
             countriesData[countryCode] = profile;
-            console.log(profile); // Add this line
             updateCountryInfo(profile);
         })
-        .catch(() => {
+        .catch(error => {
+            console.error('Error fetching country profile:', error);
             updateCountryInfo(null);
         });
 }
 
 // Fetch map data and initialize countries layers
 function fetchMapData() {
-    fetch('/api/v1/map-data')
+    fetch(`${API_BASE_URL}/map-data`)
         .then(response => response.json())
         .then(data => {
             L.geoJSON(data, {
                 onEachFeature: (feature, layer) => {
                     const iso2 = feature.properties.ISO_A2;
                     if (!iso2) return;
+                    
                     const countryCode = iso2.toUpperCase();
                     countryLayers[countryCode] = layer;
-
+                    
                     // Show country name as tooltip
                     const countryName = feature.properties.NAME;
                     layer.bindTooltip(`<strong>${countryName}</strong>`, {
@@ -124,7 +128,7 @@ function fetchMapData() {
                         permanent: true,
                         className: 'country-label'
                     });
-
+                    
                     // Add flag marker at centroid
                     const centroid = layer.getBounds().getCenter();
                     const flagUrl = `https://flagcdn.com/32x24/${countryCode.toLowerCase()}.png`;
@@ -135,25 +139,14 @@ function fetchMapData() {
                         popupAnchor: [0, -12]
                     });
                     L.marker(centroid, {icon: flagIcon, title: countryName, interactive: false}).addTo(map);
-
-                    // Fetch and cache country profile for select
-                    fetch(`/api/v1/country-profile/${countryCode}`)
-                        .then(resp => resp.json())
-                        .then(profile => {
-                            countriesData[countryCode] = profile;
-                        });
-
-                    layer.on({
-                        click: () => {
-                            map.fitBounds(layer.getBounds());
-                            fetchCountryProfile(countryCode);
-                        }
-                    });
                 }
             }).addTo(map);
-
-            // Populate the select dropdown after all layers are added
+            
+            // Populate select after map is loaded
             populateCountrySelect();
+        })
+        .catch(error => {
+            console.error('Error fetching map data:', error);
         });
 }
 

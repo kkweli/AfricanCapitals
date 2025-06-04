@@ -4,7 +4,32 @@ from app.core.logging import logger
 
 router = APIRouter()
 
-@router.get("/map-data", summary="Get GeoJSON data for African countries")
+@router.get("/map-data",
+    summary="Get GeoJSON data for African countries",
+    responses={
+        200: {
+            "description": "Successfully retrieved GeoJSON data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "FeatureCollection",
+                        "features": [{
+                            "type": "Feature",
+                            "properties": {
+                                "NAME": "Nigeria",
+                                "ISO_A2": "NG"
+                            },
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": "[[...]]"
+                            }
+                        }]
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_map_data(geo_service: GeoDataService = Depends()):
     """
     Fetches GeoJSON data for all African countries for map rendering.

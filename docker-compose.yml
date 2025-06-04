@@ -28,5 +28,14 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  trivy:
+    image: aquasec/trivy:latest
+    command: image --format json --output /trivy-report.json api:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./trivy-report.json:/trivy-report.json
+    depends_on:
+      - api
+
 volumes:
   redis_data:
