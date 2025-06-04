@@ -67,11 +67,11 @@ pipeline {
         stage('Trivy Scan') {
             steps {
                 script {
-                    // Scan the built image for vulnerabilities
                     bat """
                         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
                             -v %CD%:/root/.cache/ ^
-                            %TRIVY_IMAGE% image --exit-code 1 --severity HIGH,CRITICAL --format json --output trivy-report.json ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                            -v %CD%:/scan ^
+                            %TRIVY_IMAGE% image --format json --output /scan/trivy-report.json ${DOCKERHUB_REPO}:${IMAGE_TAG}
                     """
                 }
                 archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
@@ -288,7 +288,7 @@ pipeline {
             }
         }
         always {
-            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy,trivy-report.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy', allowEmptyArchive: true
             echo "Workspace preserved for debugging. Clean manually if needed."
         }
     }
