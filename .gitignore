@@ -21,3 +21,8 @@ __pycache__/
 
 # Docker
 *.env
+.git
+__pycache__
+*.pyc
+tests
+*.md

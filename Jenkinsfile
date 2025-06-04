@@ -288,7 +288,7 @@ pipeline {
             }
         }
         always {
-            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'docker-compose.deploy.yml,.env,.env.deploy,trivy-report.json', allowEmptyArchive: true
             echo "Workspace preserved for debugging. Clean manually if needed."
         }
     }
