@@ -1,4 +1,6 @@
 import httpx
+import asyncio
+import time
 from fastapi import Depends
 from app.core.config import settings
 from app.core.logging import logger
@@ -12,27 +14,29 @@ class CountryService:
         self.rest_countries_url = settings.REST_COUNTRIES_URL
         self.region_order = settings.REGION_ORDER
         self.timeout = settings.EXTERNAL_API_TIMEOUT
-    
+        self._countries_cache = None
+        self._countries_cache_time = 0
+        self._countries_cache_ttl = settings.CACHE_TTL
+        self._countries_cache_lock = asyncio.Lock()
+
     async def fetch_countries(self):
         """Fetch countries from the REST Countries API"""
-        logger.debug(f"Fetching countries from {self.rest_countries_url}")
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    self.rest_countries_url, 
-                    timeout=self.timeout
-                )
+        now = time.time()
+        async with self._countries_cache_lock:
+            if (
+                settings.CACHE_ENABLED and
+                self._countries_cache and
+                now - self._countries_cache_time < self._countries_cache_ttl
+            ):
+                return self._countries_cache
+            # Fetch from RestCountries API
+            async with httpx.AsyncClient(timeout=settings.EXTERNAL_API_TIMEOUT) as client:
+                response = await client.get(settings.REST_COUNTRIES_URL)
                 response.raise_for_status()
-                return response.json()
-            except httpx.TimeoutException:
-                logger.error("Timeout while fetching countries")
-                raise Exception("External API request timed out")
-            except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error while fetching countries: {e}")
-                raise Exception(f"External API returned error: {e.response.status_code}")
-            except Exception as e:
-                logger.error(f"Unexpected error while fetching countries: {str(e)}")
-                raise
+                countries = response.json()
+                self._countries_cache = countries
+                self._countries_cache_time = now
+                return countries
     
     async def get_african_capitals_by_region(self):
         """
@@ -58,3 +62,17 @@ class CountryService:
                 })
                 
         return result
+    
+    async def get_country_data(self, country_code):
+        """
+        Fetch a single country's data by ISO 3166-1 alpha-2 or alpha-3 code.
+        """
+        countries = await self.fetch_countries()
+        country_code = country_code.upper()
+        return next(
+            (
+                c for c in countries
+                if c.get("cca2", "").upper() == country_code or c.get("cca3", "").upper() == country_code
+            ),
+            None
+        )

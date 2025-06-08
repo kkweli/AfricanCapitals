@@ -1,8 +1,9 @@
 pipeline {
     agent { label 'main-executor' }
 
+    // Environment variables for Docker and deployment
     environment {
-        DOCKERHUB_REPO = 'kkweli/africanapi'
+        DOCKERHUB_REPO = 'kkweli25/kkweli'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'african-capitals-api'
         HOST_PORT = '8000'
@@ -11,6 +12,7 @@ pipeline {
     }
 
     stages {
+        // Pull Trivy image for vulnerability scanning
         stage('Pull Trivy Image') {
             steps {
                 script {
@@ -20,12 +22,24 @@ pipeline {
             }
         }
 
+        // Checkout source code from GitHub
         stage('Checkout Source') {
             steps {
                 git url: 'https://github.com/kkweli/AfricanCapitals.git', branch: 'main'
             }
         }
 
+        // Run Python unit tests before building the Docker image
+        stage('Run Tests') {
+            steps {
+                bat """
+                    set PYTHONPATH=%CD%
+                    python -m unittest discover -s app/tests
+                """
+            }
+        }
+
+        // Build Docker image for the application
         stage('Build Docker Image') {
             steps {
                 script {

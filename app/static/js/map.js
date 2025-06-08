@@ -185,18 +185,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateCountryInfo(null);
                 return;
             }
-            
             if (countryLayers[selectedCode]) {
                 // Zoom to country
                 map.fitBounds(countryLayers[selectedCode].getBounds());
-                
                 // Fetch and display country data
                 fetch(`/api/v1/country-profile/${selectedCode}`)
                     .then(response => response.json())
                     .then(profile => {
                         countriesData[selectedCode] = profile;
                         updateCountryInfo(profile);
-                        
                         // Highlight selected country
                         Object.values(countryLayers).forEach(layer => {
                             layer.setStyle({ weight: 1, color: '#666' });

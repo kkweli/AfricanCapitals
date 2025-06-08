@@ -81,6 +81,10 @@
             padding: 2px 6px;
             pointer-events: none;
         }
+        #country-info {
+            max-height: 400px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -96,17 +100,17 @@
         <div id="map">
             <div class="info-search-container">
                 <div class="info-box">
-                    <h4>Country Information</h4>
-                    <div id="country-info">
-    <p>Select a country from the dropdown to see details</p>
-</div>
-                </div>
-                <div class="info-box">
                     <h4>Search Country</h4>
                     <div class="input-group mb-3">
                         <select id="country-select" class="form-select">
-    <option value="">Select a country...</option>
-</select>
+                            <option value="">Select a country...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <h4>Country Information</h4>
+                    <div id="country-info">
+                        <p>Select a country from the dropdown to see details</p>
                     </div>
                 </div>
             </div>

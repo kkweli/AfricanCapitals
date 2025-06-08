@@ -1,4 +1,6 @@
 import httpx
+import asyncio
+import time
 from fastapi import Depends
 from app.core.config import settings
 from app.core.logging import logger
@@ -10,7 +12,7 @@ class EconomicDataService:
     """
     Service for fetching and processing economic data for African countries
     """
-    
+
     def __init__(
         self, 
         country_service: CountryService = Depends(),
@@ -20,7 +22,7 @@ class EconomicDataService:
         self.geo_service = geo_service
         self.world_bank_api_url = "https://api.worldbank.org/v2/country/{country_code}/indicator/{indicator}?format=json&per_page=1&mrnev=1"
         self.timeout = settings.EXTERNAL_API_TIMEOUT
-        
+
         # World Bank indicators
         self.indicators = {
             "gdp": "NY.GDP.MKTP.CD",  # GDP (current US$)
@@ -28,84 +30,91 @@ class EconomicDataService:
             "population": "SP.POP.TOTL",  # Population, total
             "population_growth": "SP.POP.GROW",  # Population growth (annual %)
         }
-        
-        # Hardcoded key sectors data for prototype
-        # In production, this would come from a database or another API
-        self.key_sectors = {
-            "KE": [  # Kenya
-                {"name": "Agriculture", "contribution": 34.5, "value": 33.9},
-                {"name": "Tourism", "contribution": 8.8, "value": 8.7},
-                {"name": "Manufacturing", "contribution": 7.7, "value": 7.6}
-            ],
-            "NG": [  # Nigeria
-                {"name": "Oil & Gas", "contribution": 8.6, "value": 38.7},
-                {"name": "Agriculture", "contribution": 26.2, "value": 117.9},
-                {"name": "Telecommunications", "contribution": 11.2, "value": 50.4}
-            ],
-            "ZA": [  # South Africa
-                {"name": "Mining", "contribution": 8.2, "value": 29.9},
-                {"name": "Finance", "contribution": 20.3, "value": 74.1},
-                {"name": "Manufacturing", "contribution": 13.5, "value": 49.3}
-            ],
-            # Default sectors for other countries
-            "default": [
-                {"name": "Agriculture", "contribution": 25.0, "value": 15.0},
-                {"name": "Services", "contribution": 45.0, "value": 27.0},
-                {"name": "Industry", "contribution": 30.0, "value": 18.0}
-            ]
+        # Sector indicators (percent of GDP)
+        self.sector_indicators = {
+            "Agriculture": "NV.AGR.TOTL.ZS",
+            "Industry": "NV.IND.TOTL.ZS",
+            "Services": "NV.SRV.TOTL.ZS"
         }
-    
+
+        self._wb_cache = {}
+        self._wb_cache_lock = asyncio.Lock()
+        self._wb_cache_ttl = settings.CACHE_TTL
+
     async def fetch_world_bank_data(self, country_code, indicator):
-        """Fetch data from World Bank API with retry and timeout"""
+        cache_key = f"{country_code}:{indicator}"
+        now = time.time()
+        async with self._wb_cache_lock:
+            cached = self._wb_cache.get(cache_key)
+            if (
+                settings.CACHE_ENABLED and
+                cached and
+                now - cached['timestamp'] < self._wb_cache_ttl
+            ):
+                return cached['value']
+
         url = self.world_bank_api_url.format(
             country_code=country_code, 
             indicator=indicator
         )
-        
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.get(url)
                 response.raise_for_status()
                 data = response.json()
-                
+                value = None
                 if len(data) > 1 and data[1] and len(data[1]) > 0:
-                    return data[1][0].get("value")
-                return None
+                    value = data[1][0].get("value")
+                async with self._wb_cache_lock:
+                    self._wb_cache[cache_key] = {'value': value, 'timestamp': now}
+                return value
             except Exception as e:
                 logger.error(f"Error fetching World Bank data: {str(e)}")
                 return None
-    
+
+    async def fetch_sector_data(self, country_code, gdp):
+        # Fetch sector % of GDP from World Bank
+        results = await asyncio.gather(
+            *[self.fetch_world_bank_data(country_code, ind) for ind in self.sector_indicators.values()]
+        )
+        sectors = []
+        for name, percent in zip(self.sector_indicators.keys(), results):
+            if percent is not None:
+                value = round(gdp * percent / 100 / 1e9, 2) if gdp and percent else None  # in billions
+                sectors.append({
+                    "name": name,
+                    "contribution": percent,  # % of GDP
+                    "value": value
+                })
+        return sectors
+
     async def get_country_economic_data(self, country_code):
         """
         Fetches economic data for a specific country
         """
-        # For prototype, we'll use a mix of real API calls and mock data
-        # In production, all data would come from reliable APIs or databases
-        
-        # Normalize country code to ISO 3166-1 alpha-2
         country_code = country_code.upper()
         if len(country_code) == 3:
-            # Convert alpha-3 to alpha-2 (simplified for prototype)
-            # In production, use a proper country code conversion library
             code_mapping = {"KEN": "KE", "NGA": "NG", "ZAF": "ZA", "EGY": "EG", "GHA": "GH"}
             country_code = code_mapping.get(country_code, country_code[:2])
-        
-        # Fetch basic country data
+
         countries = await self.country_service.fetch_countries()
         country_data = next((c for c in countries if c.get("cca2") == country_code or c.get("cca3") == country_code), None)
-        
         if not country_data:
             return None
-        
-        # Fetch economic indicators
+
         gdp = await self.fetch_world_bank_data(country_code, self.indicators["gdp"])
-        gdp_growth = await self.fetch_world_bank_data(country_code, self.indicators["gdp_growth"])
+        try:
+            gdp_growth = await self.fetch_world_bank_data(country_code, self.indicators["gdp_growth"])
+        except Exception:
+            gdp_growth = None
         population = await self.fetch_world_bank_data(country_code, self.indicators["population"])
-        population_growth = await self.fetch_world_bank_data(country_code, self.indicators["population_growth"])
-        
-        # Get key sectors (mock data for prototype)
-        sectors = self.key_sectors.get(country_code, self.key_sectors["default"])
-        
+        try:
+            population_growth = await self.fetch_world_bank_data(country_code, self.indicators["population_growth"])
+        except Exception:
+            population_growth = None
+        sectors = await self.fetch_sector_data(country_code, gdp)
+
+        # Return whatever data is available
         return {
             "country": {
                 "name": country_data.get("name", {}).get("common"),
@@ -122,23 +131,17 @@ class EconomicDataService:
             "demographics": {
                 "population": population,
                 "growth_rate": population_growth,
-                "median_age": country_data.get("median_age", 25)  # Default if not available
+                "median_age": country_data.get("median_age", 25)
             }
         }
-    
+
     async def get_all_economic_data(self):
-        """
-        Fetches economic data for all African countries
-        """
         countries = await self.country_service.fetch_countries()
         result = []
-        
         for country in countries:
             country_code = country.get("cca2")
             if not country_code:
                 continue
-                
-            # For prototype, we'll just get basic data to avoid too many API calls
             result.append({
                 "name": country.get("name", {}).get("common"),
                 "code": country_code,
@@ -146,32 +149,24 @@ class EconomicDataService:
                 "population": await self.fetch_world_bank_data(country_code, self.indicators["population"]),
                 "gdp": await self.fetch_world_bank_data(country_code, self.indicators["gdp"])
             })
-            
         return result
-    
+
     async def get_country_profile(self, country_code):
-        """Fetch country profile with concurrent requests"""
         try:
             indicators = [
                 self.fetch_world_bank_data(country_code, ind)
                 for ind in self.indicators.values()
             ]
-            
-            # Fetch all indicators concurrently with timeout
             results = await gather_with_concurrency(
-                n=3,  # Max 3 concurrent requests
-                timeout=5,  # 5 second timeout
+                3,  # Max 3 concurrent requests
+                5,  # 5 second timeout
                 *indicators
             )
-            
-            # Process results
             gdp, gdp_growth, population, population_growth = results
-            
-            # Get country data
             country_data = await self.country_service.get_country_data(country_code)
             if not country_data:
                 return None
-                
+            sectors = await self.fetch_sector_data(country_code, gdp)
             return {
                 "country": {
                     "name": country_data.get("name", {}).get("common"),
@@ -183,7 +178,7 @@ class EconomicDataService:
                     "gdp": gdp,
                     "gdp_growth": gdp_growth,
                     "currency": next(iter(country_data.get("currencies", {}).keys()), None),
-                    "key_sectors": self.key_sectors.get(country_code, self.key_sectors["default"])
+                    "key_sectors": sectors
                 },
                 "demographics": {
                     "population": population,

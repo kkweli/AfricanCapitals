@@ -18,7 +18,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await asyncio.wait_for(
                 call_next(request),
-                timeout=10.0  # 10 second timeout
+                timeout=60.0  # 60 second timeout
             )
             
             process_time = time.time() - start_time

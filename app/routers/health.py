@@ -6,36 +6,35 @@ from typing import Dict, Any
 from app.services.dependencies import get_timezone
 from app.core.logging import logger
 from http import HTTPStatus
-import aiohttp
 from aiohttp import ClientSession, ClientTimeout, ClientError, TCPConnector
 import asyncio
+import traceback
 
 router = APIRouter()
 
 # Enhanced monitored endpoints with expected status codes and sample values
 MONITORED_ENDPOINTS = [
-    {"path": "/api/v1/health", "name": "Health Check", "expected_status": 200},
     {"path": "/api/v1/african-capitals", "name": "African Capitals", "expected_status": 200},
     # Economic data endpoints
-    {"path": "/api/v1/economic-data/KE", "name": "Economic Data (Kenya)", "expected_status": 200},
-    {"path": "/api/v1/economic-data/NG", "name": "Economic Data (Nigeria)", "expected_status": 200},
-    {"path": "/api/v1/economic-data/ZA", "name": "Economic Data (South Africa)", "expected_status": 200},
-    {"path": "/api/v1/economic-data/EG", "name": "Economic Data (Egypt)", "expected_status": 200},
+    {"path": "/api/v1/economic-data/KE?healthcheck=true", "name": "Economic Data (Kenya)", "expected_status": 200},
+    {"path": "/api/v1/economic-data/NG?healthcheck=true", "name": "Economic Data (Nigeria)", "expected_status": 200},
+    {"path": "/api/v1/economic-data/ZA?healthcheck=true", "name": "Economic Data (South Africa)", "expected_status": 200},
+    {"path": "/api/v1/economic-data/EG?healthcheck=true", "name": "Economic Data (Egypt)", "expected_status": 200},
     # Map data endpoints
     {"path": "/api/v1/map-data/KE", "name": "Map Data (Kenya)", "expected_status": 200},
     {"path": "/api/v1/map-data/NG", "name": "Map Data (Nigeria)", "expected_status": 200},
     {"path": "/api/v1/map-data/ZA", "name": "Map Data (South Africa)", "expected_status": 200},
     # Country profile endpoints
-    {"path": "/api/v1/country-profile/KE", "name": "Country Profile (Kenya)", "expected_status": 200},
-    {"path": "/api/v1/country-profile/NG", "name": "Country Profile (Nigeria)", "expected_status": 200},
-    {"path": "/api/v1/country-profile/ZA", "name": "Country Profile (South Africa)", "expected_status": 200},
-    {"path": "/api/v1/country-profile/EG", "name": "Country Profile (Egypt)", "expected_status": 200},
+    {"path": "/api/v1/country-profile/KE?healthcheck=true", "name": "Country Profile (Kenya)", "expected_status": 200},
+    {"path": "/api/v1/country-profile/NG?healthcheck=true", "name": "Country Profile (Nigeria)", "expected_status": 200},
+    {"path": "/api/v1/country-profile/ZA?healthcheck=true", "name": "Country Profile (South Africa)", "expected_status": 200},
+    {"path": "/api/v1/country-profile/EG?healthcheck=true", "name": "Country Profile (Egypt)", "expected_status": 200},
     # Frontend
     {"path": "/", "name": "WebGL Map Interface", "expected_status": 200}
 ]
 
 # Update constants for better connection handling
-TIMEOUT_SECONDS = 5 
+TIMEOUT_SECONDS = 45 
 BATCH_SIZE = 2
 MAX_RETRIES = 2
 BASE_DELAY = 0.5
@@ -44,22 +43,24 @@ MAX_CONCURRENT = 5
 # Update base URL to avoid double /api/v1 prefix
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
+def get_timeout_for_endpoint(path):
+    if path.startswith("/api/v1/economic-data"):
+        return 60  # seconds
+    return 30
+
 async def check_endpoint(session, path: str, name: str, expected_status: int) -> Dict[str, Any]:
     """Check health of a single endpoint with improved timeout handling."""
     start_time = time.time()
     try:
-        # Use the BASE_URL constant
-        url = f"{BASE_URL}{path}"  # Do NOT add /api/v1 here, it's already in the path
-        
+        url = f"{BASE_URL}{path}"
         async with session.get(
-            url, 
+            url,
             allow_redirects=True,
-            timeout=ClientTimeout(total=TIMEOUT_SECONDS),
+            timeout=ClientTimeout(total=get_timeout_for_endpoint(path)),
             headers={"Connection": "close"}
         ) as response:
             elapsed = int((time.time() - start_time) * 1000)
             status_code = response.status
-            
             return {
                 "name": name,
                 "status": "ok" if status_code == expected_status else "error",
@@ -69,15 +70,26 @@ async def check_endpoint(session, path: str, name: str, expected_status: int) ->
                 "response_time": elapsed,
                 "expected_status": expected_status
             }
+    except asyncio.TimeoutError as e:
+        logger.error(f"Timeout checking endpoint {name}: {str(e)}\n{traceback.format_exc()}")
+        return {
+            "name": name,
+            "status": "timeout",
+            "http_status": 0,
+            "status_description": "Timeout",
+            "timestamp": datetime.utcnow().isoformat(),
+            "response_time": int((time.time() - start_time) * 1000),
+            "expected_status": expected_status
+        }
     except Exception as e:
-        logger.error(f"Error checking endpoint {name}: {str(e)}")
+        logger.error(f"Error checking endpoint {name}: {str(e)}\n{traceback.format_exc()}")
         return {
             "name": name,
             "status": "error",
             "http_status": 0,
             "status_description": str(e),
             "timestamp": datetime.utcnow().isoformat(),
-            "response_time": 0,
+            "response_time": int((time.time() - start_time) * 1000),
             "expected_status": expected_status
         }
 

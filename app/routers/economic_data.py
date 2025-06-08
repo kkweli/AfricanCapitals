@@ -57,6 +57,7 @@ async def get_economic_data(
 )
 async def get_country_economic_data(
     country_code: str = Path(..., description="ISO 3166-1 alpha-2 or alpha-3 country code"),
+    healthcheck: bool = Query(False),
     economic_service: EconomicDataService = Depends()
 ):
     """
@@ -64,6 +65,10 @@ async def get_country_economic_data(
     """
     logger.info(f"Fetching economic data for country: {country_code}")
     try:
+        if healthcheck:
+            # Only fetch GDP for health check
+            gdp = await economic_service.fetch_world_bank_data(country_code, economic_service.indicators["gdp"])
+            return {"gdp": gdp}
         result = await economic_service.get_country_economic_data(country_code)
         if not result:
             raise HTTPException(
@@ -83,17 +88,15 @@ async def get_country_economic_data(
 @router.get("/country-profile/{country_code}", summary="Get comprehensive profile for a specific African country")
 async def get_country_profile(
     country_code: str = Path(..., description="ISO 3166-1 alpha-2 or alpha-3 country code"),
+    healthcheck: bool = Query(False),
     economic_service: EconomicDataService = Depends()
 ):
-    """
-    Fetches a comprehensive profile for a specific African country including:
-    - Basic information (name, capital, etc.)
-    - Geographic data (boundaries, coordinates)
-    - Economic data (GDP, key sectors)
-    - Demographic data (population, growth rate)
-    """
     logger.info(f"Fetching country profile for: {country_code}")
     try:
+        if healthcheck:
+            # Only fetch GDP for health check
+            gdp = await economic_service.fetch_world_bank_data(country_code, economic_service.indicators["gdp"])
+            return {"gdp": gdp}
         result = await economic_service.get_country_profile(country_code)
         if not result:
             raise HTTPException(

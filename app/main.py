@@ -52,7 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(TimeoutMiddleware, timeout=10.0)
+app.add_middleware(TimeoutMiddleware, timeout=60.0)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # Include routers
