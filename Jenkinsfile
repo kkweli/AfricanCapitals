@@ -2,7 +2,7 @@ pipeline {
     agent { label 'main-executor' }
 
     environment {
-        DOCKERHUB_REPO = 'kkweli25/kkweli'
+        DOCKERHUB_REPO = 'kkweli/africanapi'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'african-capitals-api'
         HOST_PORT = '8000'

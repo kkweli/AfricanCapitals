@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: kkweli25/kkweli:latest
+    image: kkweli/africanapi:latest
     ports:
       - "8000:8000"
     env_file:
@@ -33,7 +33,7 @@ services:
 
   trivy:
     image: aquasec/trivy:latest
-    command: image --format json --output /trivy-report.json kkweli25/kkweli:latest
+    command: image --format json --output /trivy-report.json kkweli/africanapi:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./trivy-report.json:/trivy-report.json
