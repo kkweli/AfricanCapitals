@@ -12,7 +12,7 @@ class BasicTestCase(unittest.TestCase):
         cls.client = TestClient(app)
 
     def test_health(self):
-        response = self.client.get("/health")
+        response = self.client.get("/api/v1/health")  # <-- updated path
         self.assertEqual(response.status_code, 200)
         # Optionally check response content
         # self.assertIn("status", response.json())
