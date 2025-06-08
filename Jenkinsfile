@@ -33,8 +33,9 @@ pipeline {
         stage('Run Tests') {
             steps {
                 bat """
-                    set PYTHONPATH=%CD%\\app
-                    python -m unittest discover -s app/tests
+                    cd app
+                    set PYTHONPATH=%CD%
+                    python -m unittest discover -s tests
                 """
             }
         }
