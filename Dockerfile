@@ -28,4 +28,4 @@ EXPOSE 8000
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-CMD ["run.py"]
+CMD ["python", "-m", "run"]
