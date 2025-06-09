@@ -9,7 +9,6 @@ venv/
 history/
 
 # Byte-compiled / optimized / DLL files
-__pycache__/
 *.py[cod]
 *$py.class
 
@@ -24,5 +23,6 @@ __pycache__/
 .git
 __pycache__
 *.pyc
-*.md
+*.pyo
+*.pyd
 logs/*.log
