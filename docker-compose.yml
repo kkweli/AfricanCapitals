@@ -12,7 +12,7 @@ services:
       - ./app/static:/app/app/static
       - ./app/cache:/app/app/cache
     healthcheck:
-      test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/health"]
+      test: ["CMD", "curl", "-s", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
