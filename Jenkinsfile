@@ -161,7 +161,7 @@ pipeline {
                             echo     volumes:
                             echo       - /etc/localtime:/etc/localtime:ro
                             echo     healthcheck:
-                            echo       test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/health"]
+                            echo       test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/api/v1/health"]
                             echo       interval: 30s
                             echo       timeout: 10s
                             echo       retries: 3
@@ -213,7 +213,7 @@ pipeline {
                         set TEMP_FILE=%TEMP%\\health_check_response.txt
                         
                         REM Use curl to check the health endpoint and save status code to file
-                        curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/health > %TEMP_FILE%
+                        curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/api/v1/health > %TEMP_FILE%
                         
                         REM Read the status code from the file
                         set /p HTTP_STATUS=<%TEMP_FILE%
