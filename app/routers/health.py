@@ -53,12 +53,14 @@ async def check_endpoint(session, path: str, name: str, expected_status: int) ->
     start_time = time.time()
     try:
         url = f"{BASE_URL}{path}"
-        async with session.get(
+        response_coro = session.get(
             url,
             allow_redirects=True,
             timeout=ClientTimeout(total=get_timeout_for_endpoint(path)),
             headers={"Connection": "close"}
-        ) as response:
+        )
+        response = await response_coro
+        async with response:
             elapsed = int((time.time() - start_time) * 1000)
             status_code = response.status
             return {
