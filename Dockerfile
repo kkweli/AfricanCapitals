@@ -14,12 +14,11 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY . .
 
-# --- Final Stage: Distroless Python ---
-FROM gcr.io/distroless/python3-debian11
+# --- Final Stage: Slim Python ---
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy installed dependencies and app code from builder
 COPY --from=builder /install /usr/local
 COPY --from=builder /app /app
 
@@ -28,4 +27,4 @@ EXPOSE 8000
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-CMD ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
