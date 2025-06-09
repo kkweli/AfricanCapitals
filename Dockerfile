@@ -22,15 +22,19 @@ RUN find . -type d -name '__pycache__' -exec rm -rf {} + && \
     find . -type f -name '*.pyc' -delete
 
 # --- Final Stage: Distroless ---
-FROM gcr.io/distroless/python3-debian11
+FROM gcr.io/distroless/python3
 
 WORKDIR /app
 
 COPY --from=builder /app /app
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 EXPOSE 8000
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app:/usr/local/lib/python3.11/site-packages
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/usr/bin/python3", "-m", "uvicorn"]
+CMD ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
