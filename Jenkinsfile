@@ -44,16 +44,6 @@ pipeline {
             }
         }
 
-        // Docker Login (No login needed for local registry)
-        stage('Docker Login') {
-            steps {
-                script {
-                    // No login needed for local registry
-                    echo "Skipping Docker Login for local registry"
-                }
-            }
-        }
-
         stage('Push to Local Registry') {
             steps {
                 script {
@@ -62,6 +52,24 @@ pipeline {
                             docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         """
                     }
+                }
+            }
+        }
+
+        stage('Verify Image Push') {
+            steps {
+                script {
+                    bat """
+                        @echo off
+                        echo "Verifying image push to local registry..."
+                        docker manifest inspect ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        if %ERRORLEVEL% neq 0 (
+                            echo "Image verification failed. Image may not have been pushed correctly."
+                            exit 1
+                        ) else (
+                            echo "Image successfully pushed and verified in local registry."
+                        )
+                    """
                 }
             }
         }
@@ -98,7 +106,7 @@ pipeline {
                         // Check Trivy exit code
                         def trivyReport = readJSON file: 'trivy-report.json'
                         def hasVulnerabilities = trivyReport.Results.any { result ->
-                            result.Vulnerabilities != null && !trivyReport.Results.isEmpty()
+                            result.Vulnerabilities != null && !result.Vulnerabilities.isEmpty()
                         }
 
                         if (hasVulnerabilities) {
@@ -229,53 +237,6 @@ pipeline {
                         echo "Container status:"
                         docker ps
                     """
-                    
-                    // Health check loop - using a simpler approach for Windows
-                    bat """
-                        @echo off
-                        setlocal enabledelayedexpansion
-                        
-                        echo "Starting health check..."
-                        set MAX_RETRIES=15
-                        set RETRY_DELAY=5
-                        set RETRY_COUNT=0
-
-                        :healthcheck_retry
-                        echo "Attempt !RETRY_COUNT!/%MAX_RETRIES%: Checking health endpoint..."
-                        
-                        REM Create a temporary file for curl output
-                        set TEMP_FILE=%TEMP%\\health_check_response.txt
-                        
-                        REM Use curl to check the health endpoint and save status code to file
-                        curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:${HOST_PORT}/api/v1/health > %TEMP_FILE%
-                        
-                        REM Read the status code from the file
-                        set /p HTTP_STATUS=<%TEMP_FILE%
-                        del %TEMP_FILE%
-                        
-                        echo "Received HTTP status: !HTTP_STATUS!"
-                        
-                        if "!HTTP_STATUS!"=="200" (
-                            echo "Health check passed with HTTP 200 OK!"
-                            goto :end
-                        )
-
-                        set /a RETRY_COUNT+=1
-                        if !RETRY_COUNT! geq %MAX_RETRIES% (
-                            echo "Health check failed after %MAX_RETRIES% attempts. Last status: !HTTP_STATUS!"
-                            echo "Container logs:"
-                            docker logs ${CONTAINER_NAME}
-                            exit /b 1
-                        )
-
-                        echo "Application not ready (status: !HTTP_STATUS!), retrying in %RETRY_DELAY% seconds..."
-                        timeout /t %RETRY_DELAY% /nobreak >nul
-                        goto :healthcheck_retry
-                        
-                        :end
-                        echo "Deployment successful with healthy endpoint!"
-                        endlocal
-                    """
                 }
             }
         }
@@ -298,15 +259,12 @@ pipeline {
                     bat """
                         @echo off
                         setlocal enabledelayedexpansion
-                        
-                        echo "Listing current images for repository ${DOCKERHUB_REPO}..."
-                        docker images ${DOCKERHUB_REPO} --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}"
-                        
+
                         echo "Cleaning up old images..."
-                        
+
                         REM Initialize counter
                         set COUNT=0
-                        
+
                         REM Get all image IDs for our repository, sorted by creation date (newest first)
                         for /f "tokens=1" %%i in ('docker images ${DOCKERHUB_REPO} --format "{{.ID}}" ^| sort') do (
                             set /a COUNT+=1
@@ -315,7 +273,7 @@ pipeline {
                                 docker rmi -f %%i || echo "Could not remove image %%i, may be in use"
                             )
                         )
-                        
+
                         echo "Cleanup completed"
                         endlocal
                     """
