@@ -35,26 +35,48 @@ pipeline {
             steps {
                 script {
                     def pullAndPushImage = { String dockerHubImage, String localImage ->
+                        def maxRetries = 3
+                        def retryDelay = 5 // seconds
+
                         bat """
                             @echo off
                             echo "Checking if image ${localImage} exists in local registry..."
+
+                            REM Retry loop to check registry availability
+                            set RETRY_COUNT=0
+                            :CHECK_REGISTRY
                             docker inspect ${localImage} >nul 2>&1
                             if %ERRORLEVEL% neq 0 (
-                                echo "Image ${localImage} not found in local registry. Pulling from Docker Hub..."
-                                docker pull ${dockerHubImage}
-                                if %ERRORLEVEL% neq 0 (
-                                    echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
-                                    exit 1
-                                )
-                                echo "Pushing image ${dockerHubImage} to local registry as ${localImage}..."
-                                docker tag ${dockerHubImage} ${localImage}
-                                docker push ${localImage}
-                                if %ERRORLEVEL% neq 0 (
-                                    echo "Failed to push ${localImage} to local registry. Exiting."
+                                echo "Image ${localImage} not found in local registry."
+                                set /a RETRY_COUNT+=1
+                                if %RETRY_COUNT% leq ${maxRetries} (
+                                    echo "Registry not yet available. Retrying in ${retryDelay} seconds (attempt %RETRY_COUNT% of ${maxRetries})..."
+                                    timeout /t ${retryDelay} /nobreak > nul
+                                    goto CHECK_REGISTRY
+                                ) else (
+                                    echo "Failed to connect to local registry after ${maxRetries} attempts. Exiting."
                                     exit 1
                                 )
                             ) else (
                                 echo "Image ${localImage} found in local registry."
+                                exit 0
+                            )
+                        """
+
+                        bat """
+                            @echo off
+                            echo "Pulling image ${dockerHubImage} from Docker Hub..."
+                            docker pull ${dockerHubImage}
+                            if %ERRORLEVEL% neq 0 (
+                                echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
+                                exit 1
+                            )
+                            echo "Pushing image ${dockerHubImage} to local registry as ${localImage}..."
+                            docker tag ${dockerHubImage} ${localImage}
+                            docker push ${localImage}
+                            if %ERRORLEVEL% neq 0 (
+                                echo "Failed to push ${localImage} to local registry. Exiting."
+                                exit 1
                             )
                         """
                     }
