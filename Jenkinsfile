@@ -14,7 +14,7 @@ pipeline {
         REDIS_LOCAL_IMAGE = "${LOCAL_REGISTRY}/redis:alpine"
         REGISTRY_IMAGE = 'registry:2'
         REGISTRY_LOCAL_IMAGE = "${LOCAL_REGISTRY}/registry:2"
-        TRIVY_SEVERITY = 'HIGH,CRITICAL'
+        TRIVY_SEVERITY = ''//'HIGH,CRITICAL'
     }
 
     stages {
