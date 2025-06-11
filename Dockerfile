@@ -15,9 +15,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Now copy the rest of the code
-COPY app /app
-COPY run.py /app
-COPY requirements.txt /app
+COPY . .
 
 # Remove Python cache after copying all code
 RUN find . -type d -name '__pycache__' -exec rm -rf {} + && \
