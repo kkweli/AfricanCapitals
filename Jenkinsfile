@@ -10,16 +10,46 @@ pipeline {
         HOST_PORT = '8000'
         CONTAINER_PORT = '8000'
         TRIVY_IMAGE = 'aquasec/trivy:0.51.1'
+        TRIVY_LOCAL_IMAGE = "${LOCAL_REGISTRY}/aquasec/trivy:0.51.1"
+        REDIS_IMAGE = 'redis:alpine'
+        REDIS_LOCAL_IMAGE = "${LOCAL_REGISTRY}/redis:alpine"
+        REGISTRY_IMAGE = 'registry:2'
+        REGISTRY_LOCAL_IMAGE = "${LOCAL_REGISTRY}/registry:2"
         TRIVY_SEVERITY = ''//'HIGH,CRITICAL' // Define severity threshold
     }
 
     stages {
-        // Pull Trivy image for vulnerability scanning
-        stage('Pull Trivy Image') {
+        stage('Prepare Images') {
             steps {
                 script {
-                    // Pull Trivy image only if not present or version changes
-                    bat "docker pull %TRIVY_IMAGE%"
+                    def pullAndPushImage = { String dockerHubImage, String localImage ->
+                        bat """
+                            @echo off
+                            echo "Checking if image ${localImage} exists in local registry..."
+                            docker inspect ${localImage} >nul 2>&1
+                            if %ERRORLEVEL% neq 0 (
+                                echo "Image ${localImage} not found in local registry. Pulling from Docker Hub..."
+                                docker pull ${dockerHubImage}
+                                if %ERRORLEVEL% neq 0 (
+                                    echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
+                                    exit 1
+                                )
+                                echo "Pushing image ${dockerHubImage} to local registry as ${localImage}..."
+                                docker tag ${dockerHubImage} ${localImage}
+                                docker push ${localImage}
+                                if %ERRORLEVEL% neq 0 (
+                                    echo "Failed to push ${localImage} to local registry. Exiting."
+                                    exit 1
+                                )
+                            ) else (
+                                echo "Image ${localImage} found in local registry."
+                            )
+                        """
+                    }
+
+                    pullAndPushImage(env.TRIVY_IMAGE, env.TRIVY_LOCAL_IMAGE)
+                    pullAndPushImage(env.REDIS_IMAGE, env.REDIS_LOCAL_IMAGE)
+                    pullAndPushImage(env.REGISTRY_IMAGE, env.REGISTRY_LOCAL_IMAGE)
                 }
             }
         }
@@ -90,7 +120,7 @@ pipeline {
                             -v /var/run/docker.sock:/var/run/docker.sock ^
                             -v "${trivyCacheDir}:/root/.cache/" ^
                             -v "%CD%:/scan" ^
-                            %TRIVY_IMAGE% image ^
+                            ${TRIVY_LOCAL_IMAGE} image ^
                             --security-checks vuln,config ^
                             --severity %TRIVY_SEVERITY% ^
                             --format json ^
@@ -127,7 +157,7 @@ pipeline {
                         @echo off
                         echo "Running Trivy filesystem scan..."
                         if not exist "%TRIVY_CACHE_DIR%" mkdir "%TRIVY_CACHE_DIR%"
-                        docker run --rm -v "${trivyCacheDir}:/root/.cache/" -v "%CD%:/scan" %TRIVY_IMAGE% fs --security-checks vuln,config --severity %TRIVY_SEVERITY%  --format json --output /scan/trivy-fs-report.json /scan
+                        docker run --rm -v "${trivyCacheDir}:/root/.cache/" -v "%CD%:/scan" ${TRIVY_LOCAL_IMAGE} fs --security-checks vuln,config --severity %TRIVY_SEVERITY%  --format json --output /scan/trivy-fs-report.json /scan
                     """
                     archiveArtifacts artifacts: 'trivy-fs-report.json', allowEmptyArchive: true
                 }
@@ -232,7 +262,7 @@ pipeline {
                         
                         echo "Starting new containers..."
                         docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                        docker-compose -f docker-compose.deploy.yml up -d
+                        docker-compose -f docker-compose.yml up -d
                         
                         echo "Container status:"
                         docker ps
