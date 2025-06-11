@@ -12,12 +12,12 @@ class BasicTestCase(unittest.TestCase):
     def setUpClass(cls):
         cls.client = TestClient(app)
 
-    @patch("aiohttp.ClientSession.get", new_callable=AsyncMock)
+    @patch("httpx.AsyncClient.get", new_callable=AsyncMock)
     def test_health(self, mock_get):
-        # Mock all aiohttp GET requests to return a dummy response
+        # Mock all httpx GET requests to return a dummy response
         mock_response = AsyncMock()
-        mock_response.__aenter__.return_value.status = 200
-        mock_response.__aenter__.return_value.text = AsyncMock(return_value="OK")
+        mock_response.status_code = 200  # Set status_code directly
+        mock_response.text = AsyncMock(return_value="OK")
         mock_get.return_value = mock_response
 
         response = self.client.get("/api/v1/health")

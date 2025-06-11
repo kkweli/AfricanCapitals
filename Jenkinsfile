@@ -239,6 +239,7 @@ pipeline {
                         docker-compose -f docker-compose.deploy.yml down || echo "No docker-compose services to stop"
                         
                         echo "Starting new containers..."
+                        docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         docker-compose -f docker-compose.deploy.yml up -d
                         
                         echo "Container status:"

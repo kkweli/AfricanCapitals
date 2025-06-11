@@ -34,7 +34,8 @@ EXPOSE 8000
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app:/usr/local/lib/python3.11/site-packages
+    PYTHONPATH=/app:/usr/local/lib/python3.11/site-packages \
+    TZ=Etc/UTC
 
 ENTRYPOINT ["/usr/bin/python3", "-m", "uvicorn"]
 CMD ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
