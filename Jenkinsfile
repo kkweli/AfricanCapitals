@@ -28,14 +28,25 @@ pipeline {
                         docker-compose up -d registry
                         
                         echo "Waiting for registry to be ready..."
-                        for /l %%i in (1,1,30) do (
-                            docker ps | findstr "registry" | findstr "healthy" && (
-                                echo "Registry is ready"
-                                goto :END
-                            )
-                            timeout /t 1 /nobreak
+                        setlocal EnableDelayedExpansion
+                        set MAX_ATTEMPTS=30
+                        set ATTEMPT=0
+                        :CHECK_REGISTRY
+                        docker inspect africanapi_python_flask_cicd-registry-1 | findstr "healthy" >nul
+                        if %ERRORLEVEL% equ 0 (
+                            echo "Registry is ready"
+                            goto :END
                         )
+                        set /a ATTEMPT+=1
+                        if !ATTEMPT! lss %MAX_ATTEMPTS% (
+                            echo "Registry not yet healthy. Retrying in 1 second (attempt !ATTEMPT! of %MAX_ATTEMPTS%)..."
+                            timeout /t 1 /nobreak >nul
+                            goto :CHECK_REGISTRY
+                        )
+                        echo "Registry failed to become healthy after %MAX_ATTEMPTS% attempts."
+                        exit /b 1
                         :END
+                        endlocal
                     """
                 }
             }
@@ -96,14 +107,12 @@ pipeline {
             }
         }
 
-        // Checkout source code from GitHub
         stage('Checkout Source') {
             steps {
                 git url: 'https://github.com/kkweli/AfricanCapitals.git', branch: 'main'
             }
         }
 
-        // Build Docker image for the application
         stage('Build Docker Image') {
             steps {
                 script {
@@ -149,7 +158,7 @@ pipeline {
         stage('Trivy Scan') {
             steps {
                 script {
-                    def trivyCacheDir = "${WORKSPACE}/.trivycache" // Define cache directory
+                    def trivyCacheDir = "${WORKSPACE}/.trivycache"
 
                     bat """
                         @echo off
@@ -169,20 +178,20 @@ pipeline {
                             --output /scan/trivy-report.json ^
                             ${DOCKERHUB_REPO}:${IMAGE_TAG}
 
-                        echo "Trivy scan completed.  Check trivy-report.json for details."
+                        echo "Trivy scan completed. Check trivy-report.json for details."
                     """
 
                     archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
 
                     script {
-                        // Check Trivy exit code
                         def trivyReport = readJSON file: 'trivy-report.json'
                         def hasVulnerabilities = trivyReport.Results.any { result ->
                             result.Vulnerabilities != null && !result.Vulnerabilities.isEmpty()
                         }
 
                         if (hasVulnerabilities) {
-                            error "Trivy scan found vulnerabilities with severity ${TRIVY_SEVERITY}.  See trivy-report.json for details."
+ Fac
+                            error "Trivy scan found vulnerabilities with severity ${TRIVY_SEVERITY}. See trivy-report.json for details."
                         } else {
                             echo "No vulnerabilities found with severity ${TRIVY_SEVERITY}."
                         }
@@ -198,8 +207,8 @@ pipeline {
                     bat """
                         @echo off
                         echo "Running Trivy filesystem scan..."
-                        if not exist "%TRIVY_CACHE_DIR%" mkdir "%TRIVY_CACHE_DIR%"
-                        docker run --rm -v "${trivyCacheDir}:/root/.cache/" -v "%CD%:/scan" ${TRIVY_LOCAL_IMAGE} fs --security-checks vuln,config --severity %TRIVY_SEVERITY%  --format json --output /scan/trivy-fs-report.json /scan
+                        if not exist "${trivyCacheDir}" mkdir "${trivyCacheDir}"
+                        docker run --rm -v "${trivyCacheDir}:/root/.cache/" -v "%CD%:/scan" ${TRIVY_LOCAL_IMAGE} fs --security-checks vuln,config --severity %TRIVY_SEVERITY% --format json --output /scan/trivy-fs-report.json /scan
                     """
                     archiveArtifacts artifacts: 'trivy-fs-report.json', allowEmptyArchive: true
                 }
@@ -209,18 +218,14 @@ pipeline {
         stage('Prepare Docker Compose Environment') {
             steps {
                 script {
-                    // Create .env file for Docker Compose
                     bat """
                         @echo off
                         echo IMAGE_TAG=${IMAGE_TAG} > .env.deploy
                         echo DOCKERHUB_REPO=${DOCKERHUB_REPO} >> .env.deploy
                     """
                     
-                    // Detect host timezone and map to IANA timezone
                     def hostTimezone = bat(script: 'powershell -Command "[System.TimeZoneInfo]::Local.Id"', returnStdout: true).trim()
-                    def ianaTimezone = "Etc/UTC" // Default fallback
-                    
-                    // Map Windows timezone ID to IANA timezone
+                    def ianaTimezone = "Etc/UTC"
                     def timezoneMap = [
                         "E. Africa Standard Time": "Africa/Nairobi",
                         "Eastern Standard Time": "America/New_York",
@@ -242,7 +247,6 @@ pipeline {
                     echo "Host timezone detected: ${hostTimezone}"
                     echo "Using IANA timezone: ${ianaTimezone}"
                     
-                    // Create a minimal .env file for the application with dynamic timezone
                     bat """
                         @echo off
                         (
@@ -259,7 +263,6 @@ pipeline {
                         ) > .env
                     """
                     
-                    // Update docker-compose.yml to use the built image
                     bat """
                         @echo off
                         (
@@ -289,7 +292,6 @@ pipeline {
         stage('Deploy with Docker Compose') {
             steps {
                 script {
-                    // Deploy using Docker Compose
                     bat """
                         @echo off
                         echo "Stopping any existing containers..."
@@ -305,7 +307,6 @@ pipeline {
             }
         }
 
-        // Run Python unit tests after deployment
         stage('Run Tests') {
             steps {
                 bat """
@@ -319,7 +320,6 @@ pipeline {
         stage('Cleanup Old Images') {
             steps {
                 script {
-                    // Remove old images to save disk space
                     bat """
                         @echo off
                         echo "Cleaning up old images..."
@@ -349,6 +349,8 @@ pipeline {
                     @echo off
                     echo "Attempting to retrieve container logs..."
                     docker logs ${CONTAINER_NAME} || echo "No container logs available."
+                    echo "Stopping and removing registry container..."
+                    docker-compose -f docker-compose.yml down || echo "No docker-compose services to stop."
                     echo "Currently running containers:"
                     docker ps
                 """
