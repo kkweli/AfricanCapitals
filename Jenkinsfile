@@ -51,7 +51,7 @@ pipeline {
                                 set /a RETRY_COUNT+=1
                                 if %RETRY_COUNT% leq ${maxRetries} (
                                     echo "Registry not yet available. Retrying in ${retryDelay} seconds (attempt %RETRY_COUNT% of ${maxRetries})..."
-                                    timeout /t ${retryDelay} /nobreak > nul
+                                    timeout /t ${retryDelay} /nobreak
                                     goto CHECK_REGISTRY
                                 ) else (
                                     echo "Failed to connect to local registry after ${maxRetries} attempts. Exiting."
