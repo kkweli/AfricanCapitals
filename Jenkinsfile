@@ -37,7 +37,7 @@ pipeline {
                 script {
                     retry(3) {
                         bat """
-                            docker build -t ${DOCKERHUB_REPO}:${IMAGE_TAG} .
+                            docker build --no-cache -t ${DOCKERHUB_REPO}:${IMAGE_TAG} .
                         """
                     }
                 }
@@ -62,7 +62,7 @@ pipeline {
                     bat """
                         @echo off
                         echo "Verifying image push to local registry..."
-                        docker manifest inspect ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        docker inspect ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         if %ERRORLEVEL% neq 0 (
                             echo "Image verification failed. Image may not have been pushed correctly."
                             exit 1
