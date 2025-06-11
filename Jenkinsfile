@@ -72,9 +72,11 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    bat """
-                        docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                    """
+                    retry(3) {
+                        bat """
+                            docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        """
+                    }
                 }
             }
         }
