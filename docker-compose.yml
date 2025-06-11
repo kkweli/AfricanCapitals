@@ -46,6 +46,7 @@ services:
       - C:/projects/local_registry:/var/lib/registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      REGISTRY_HTTP_SECRET: "my-secret-key"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/v2/"]
       interval: 5s

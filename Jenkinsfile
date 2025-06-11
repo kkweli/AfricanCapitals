@@ -14,7 +14,7 @@ pipeline {
         REDIS_LOCAL_IMAGE = "${LOCAL_REGISTRY}/redis:alpine"
         REGISTRY_IMAGE = 'registry:2'
         REGISTRY_LOCAL_IMAGE = "${LOCAL_REGISTRY}/registry:2"
-        TRIVY_SEVERITY = ''//'HIGH,CRITICAL'
+        TRIVY_SEVERITY = 'HIGH,CRITICAL'
     }
 
     stages {
@@ -31,9 +31,11 @@ pipeline {
                         set MAX_ATTEMPTS=30
                         set ATTEMPT=0
                         :CHECK_REGISTRY
-                        curl -f -s http://localhost:5000/v2/ >nul
+                        curl -f -s http://localhost:5000/v2/ > curl_output.txt
+                        findstr ".*" curl_output.txt >nul
                         if %ERRORLEVEL% equ 0 (
                             echo "Registry is ready"
+                            del curl_output.txt
                             goto :END
                         )
                         set /a ATTEMPT+=1
@@ -41,12 +43,14 @@ pipeline {
                             echo "Registry not yet healthy. Retrying in 1 second (attempt !ATTEMPT! of %MAX_ATTEMPTS%)..."
                             echo "Registry logs for debugging:"
                             docker logs africanapi_python_flask_cicd-registry-1
+                            del curl_output.txt
                             timeout /t 1 /nobreak
                             goto :CHECK_REGISTRY
                         )
                         echo "Registry failed to become healthy after %MAX_ATTEMPTS% attempts."
                         echo "Final registry logs:"
                         docker logs africanapi_python_flask_cicd-registry-1
+                        del curl_output.txt
                         exit /b 1
                         :END
                         endlocal
@@ -68,7 +72,7 @@ pipeline {
                             
                             set RETRY_COUNT=0
                             :CHECK_REGISTRY
-                            curl -f -s localhost:5000/v2/_catalog
+                            curl -f -s localhost:5000/v2/_catalog >nul
                             if %ERRORLEVEL% neq 0 (
                                 set /a RETRY_COUNT+=1
                                 if %RETRY_COUNT% leq ${maxRetries} (
@@ -85,10 +89,21 @@ pipeline {
                             docker pull ${localImage} 2>nul
                             if %ERRORLEVEL% neq 0 (
                                 echo "Image ${localImage} not found in local registry. Pulling from Docker Hub..."
+                                set PULL_ATTEMPT=0
+                                :PULL_RETRY
                                 docker pull ${dockerHubImage}
-                                if %ERRORLEVEL% neq 0 (
-                                    echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
-                                    exit 1
+                                if %ERRORLEVEL% equ 0 (
+                                    echo "Successfully pulled ${dockerHubImage} from Docker Hub."
+                                ) else (
+                                    set /a PULL_ATTEMPT+=1
+                                    if !PULL_ATTEMPT! lss ${maxRetries} (
+                                        echo "Failed to pull ${dockerHubImage}. Retrying in ${retryDelay} seconds (attempt !PULL_ATTEMPT! of ${maxRetries})..."
+                                        timeout /t ${retryDelay} /nobreak
+                                        goto PULL_RETRY
+                                    ) else (
+                                        echo "Failed to pull ${dockerHubImage} from Docker Hub after ${maxRetries} attempts. Exiting."
+                                        exit 1
+                                    )
                                 )
                                 echo "Pushing image to local registry as ${localImage}..."
                                 docker tag ${dockerHubImage} ${localImage}
