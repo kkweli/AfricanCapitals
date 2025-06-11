@@ -19,18 +19,6 @@ pipeline {
     }
 
     stages {
-        stage('Start Local Registry') {
-            steps {
-                bat """
-                    @echo off
-                    echo "Starting local registry..."
-                    docker-compose up -d registry
-                    timeout /t 10 /nobreak > nul
-                    docker ps -a
-                """
-            }
-        }
-
         stage('Prepare Images') {
             steps {
                 script {
@@ -41,7 +29,6 @@ pipeline {
                         bat """
                             @echo off
                             echo "Checking if image ${localImage} exists in local registry..."
-
 
                             REM Retry loop to check registry availability
                             set RETRY_COUNT=0
