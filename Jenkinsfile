@@ -29,8 +29,7 @@ pipeline {
                         
                         echo "Waiting for registry to be ready..."
                         for /l %%i in (1,1,30) do (
-                            docker ps | find "registry" | find "healthy"
-                            if not errorlevel 1 (
+                            docker ps | findstr "registry" | findstr "healthy" && (
                                 echo "Registry is ready"
                                 goto :END
                             )
