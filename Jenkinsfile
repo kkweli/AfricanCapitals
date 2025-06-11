@@ -19,6 +19,18 @@ pipeline {
     }
 
     stages {
+        stage('Start Local Registry') {
+            steps {
+                bat """
+                    @echo off
+                    echo "Starting local registry..."
+                    docker-compose up -d registry
+                    timeout /t 10 /nobreak > nul
+                    docker ps -a
+                """
+            }
+        }
+
         stage('Prepare Images') {
             steps {
                 script {
@@ -114,7 +126,7 @@ pipeline {
                         echo "Running Trivy scan..."
 
                         REM Create Trivy cache directory if it doesn't exist
-                        if not exist "%TRIVY_CACHE_DIR%" mkdir "%TRIVY_CACHE_DIR%"
+                        if not exist "${trivyCacheDir}" mkdir "${trivyCacheDir}"
 
                         docker run --rm ^
                             -v /var/run/docker.sock:/var/run/docker.sock ^
@@ -187,7 +199,7 @@ pipeline {
                         "GMT Standard Time": "Europe/London",
                         "Tokyo Standard Time": "Asia/Tokyo",
                         "China Standard Time": "Asia/Shanghai",
-                        "India Standard Time": "Asia/Kolkata",
+                        India Standard Time": "Asia/Kolkata",
                         "Central Standard Time": "America/Chicago",
                         "Mountain Standard Time": "America/Denver",
                         "W. Europe Standard Time": "Europe/Berlin"
@@ -251,19 +263,11 @@ pipeline {
                     bat """
                         @echo off
                         echo "Stopping any existing containers..."
-                        
-                        REM Force stop and remove the container by name regardless of docker-compose
-                        echo "Stopping container by name if it exists..."
-                        docker stop ${CONTAINER_NAME} 2>nul || echo "Container not running"
-                        docker rm ${CONTAINER_NAME} 2>nul || echo "Container not found"
-                        
-                        REM Now try docker-compose down as well
                         docker-compose -f docker-compose.deploy.yml down || echo "No docker-compose services to stop"
-                        
+
                         echo "Starting new containers..."
-                        docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
                         docker-compose -f docker-compose.yml up -d
-                        
+
                         echo "Container status:"
                         docker ps
                     """
@@ -288,24 +292,9 @@ pipeline {
                     // Remove old images to save disk space
                     bat """
                         @echo off
-                        setlocal enabledelayedexpansion
-
                         echo "Cleaning up old images..."
-
-                        REM Initialize counter
-                        set COUNT=0
-
-                        REM Get all image IDs for our repository, sorted by creation date (newest first)
-                        for /f "tokens=1" %%i in ('docker images ${DOCKERHUB_REPO} --format "{{.ID}}" ^| sort') do (
-                            set /a COUNT+=1
-                            if !COUNT! gtr 2 (
-                                echo "Removing old image ID: %%i"
-                                docker rmi -f %%i || echo "Could not remove image %%i, may be in use"
-                            )
-                        )
-
+                        docker image prune -a -f
                         echo "Cleanup completed"
-                        endlocal
                     """
                 }
             }
