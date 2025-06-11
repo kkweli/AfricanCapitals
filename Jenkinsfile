@@ -40,7 +40,6 @@ pipeline {
                                 if %RETRY_COUNT% leq ${maxRetries} (
                                     echo "Registry not yet available. Retrying in ${retryDelay} seconds (attempt %RETRY_COUNT% of ${maxRetries})..."
                                     timeout /t ${retryDelay} /nobreak
-                                    if %ERRORLEVEL% neq 0 exit 1
                                     goto CHECK_REGISTRY
                                 ) else (
                                     echo "Failed to connect to local registry after ${maxRetries} attempts. Exiting."
@@ -48,7 +47,6 @@ pipeline {
                                 )
                             ) else (
                                 echo "Image ${localImage} found in local registry."
-                                exit 0
                             )
                         """
 
