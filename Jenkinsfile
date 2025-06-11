@@ -33,7 +33,7 @@ pipeline {
                             REM Retry loop to check registry availability
                             set RETRY_COUNT=0
                             :CHECK_REGISTRY
-                            docker inspect ${localImage} >nul 2>&1
+                            docker inspect ${localImage}
                             if %ERRORLEVEL% neq 0 (
                                 echo "Image ${localImage} not found in local registry."
                                 set /a RETRY_COUNT+=1
