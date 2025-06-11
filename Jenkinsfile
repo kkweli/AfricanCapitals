@@ -30,17 +30,6 @@ pipeline {
             }
         }
 
-        // Run Python unit tests before building the Docker image
-        stage('Run Tests') {
-            steps {
-                bat """
-                    cd app
-                    set PYTHONPATH=/app
-                    python -m unittest discover -s tests
-                """
-            }
-        }
-
         // Build Docker image for the application
         stage('Build Docker Image') {
             steps {
@@ -293,6 +282,17 @@ pipeline {
                         endlocal
                     """
                 }
+            }
+        }
+
+        // Run Python unit tests after deployment
+        stage('Run Tests') {
+            steps {
+                bat """
+                    cd app
+                    set PYTHONPATH=/app
+                    python -m unittest discover -s tests
+                """
             }
         }
         
