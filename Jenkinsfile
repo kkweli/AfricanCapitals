@@ -19,6 +19,29 @@ pipeline {
     }
 
     stages {
+        stage('Start Local Registry') {
+            steps {
+                script {
+                    bat """
+                        @echo off
+                        echo "Starting local registry..."
+                        docker-compose up -d registry
+                        
+                        echo "Waiting for registry to be ready..."
+                        for /l %%i in (1,1,30) do (
+                            docker ps | find "registry" | find "healthy"
+                            if not errorlevel 1 (
+                                echo "Registry is ready"
+                                goto :END
+                            )
+                            timeout /t 1 /nobreak
+                        )
+                        :END
+                    """
+                }
+            }
+        }
+
         stage('Prepare Images') {
             steps {
                 script {
@@ -28,42 +51,41 @@ pipeline {
 
                         bat """
                             @echo off
-                            echo "Checking if image ${localImage} exists in local registry..."
-
-                            REM Retry loop to check registry availability
+                            echo "Checking registry availability..."
+                            
                             set RETRY_COUNT=0
                             :CHECK_REGISTRY
-                            docker inspect ${localImage}
+                            curl -f -s localhost:5000/v2/_catalog
                             if %ERRORLEVEL% neq 0 (
-                                echo "Image ${localImage} not found in local registry."
                                 set /a RETRY_COUNT+=1
                                 if %RETRY_COUNT% leq ${maxRetries} (
                                     echo "Registry not yet available. Retrying in ${retryDelay} seconds (attempt %RETRY_COUNT% of ${maxRetries})..."
                                     timeout /t ${retryDelay} /nobreak
                                     goto CHECK_REGISTRY
                                 ) else (
-                                    echo "Failed to connect to local registry after ${maxRetries} attempts. Exiting."
+                                    echo "Failed to connect to registry after ${maxRetries} attempts. Exiting."
+                                    exit 1
+                                )
+                            )
+
+                            echo "Checking if image ${localImage} exists..."
+                            docker pull ${localImage} 2>nul
+                            if %ERRORLEVEL% neq 0 (
+                                echo "Image ${localImage} not found in local registry. Pulling from Docker Hub..."
+                                docker pull ${dockerHubImage}
+                                if %ERRORLEVEL% neq 0 (
+                                    echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
+                                    exit 1
+                                )
+                                echo "Pushing image to local registry as ${localImage}..."
+                                docker tag ${dockerHubImage} ${localImage}
+                                docker push ${localImage}
+                                if %ERRORLEVEL% neq 0 (
+                                    echo "Failed to push ${localImage} to local registry. Exiting."
                                     exit 1
                                 )
                             ) else (
                                 echo "Image ${localImage} found in local registry."
-                            )
-                        """
-
-                        bat """
-                            @echo off
-                            echo "Pulling image ${dockerHubImage} from Docker Hub..."
-                            docker pull ${dockerHubImage}
-                            if %ERRORLEVEL% neq 0 (
-                                echo "Failed to pull ${dockerHubImage} from Docker Hub. Exiting."
-                                exit 1
-                            )
-                            echo "Pushing image ${dockerHubImage} to local registry as ${localImage}..."
-                            docker tag ${dockerHubImage} ${localImage}
-                            docker push ${localImage}
-                            if %ERRORLEVEL% neq 0 (
-                                echo "Failed to push ${localImage} to local registry. Exiting."
-                                exit 1
                             )
                         """
                     }
