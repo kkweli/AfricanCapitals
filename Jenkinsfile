@@ -1,10 +1,9 @@
 pipeline {
     agent { label 'main-executor' }
 
-    // Environment variables for Docker and deployment
     environment {
-        LOCAL_REGISTRY = 'localhost:5000' // Local registry address
-        DOCKERHUB_REPO = "${LOCAL_REGISTRY}/africanapi" // Update repository name
+        LOCAL_REGISTRY = 'localhost:5000'
+        DOCKERHUB_REPO = "${LOCAL_REGISTRY}/africanapi"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'african-capitals-api'
         HOST_PORT = '8000'
@@ -15,7 +14,7 @@ pipeline {
         REDIS_LOCAL_IMAGE = "${LOCAL_REGISTRY}/redis:alpine"
         REGISTRY_IMAGE = 'registry:2'
         REGISTRY_LOCAL_IMAGE = "${LOCAL_REGISTRY}/registry:2"
-        TRIVY_SEVERITY = ''//'HIGH,CRITICAL' // Define severity threshold
+        TRIVY_SEVERITY = ''//'HIGH,CRITICAL'
     }
 
     stages {
@@ -32,7 +31,7 @@ pipeline {
                         set MAX_ATTEMPTS=30
                         set ATTEMPT=0
                         :CHECK_REGISTRY
-                        docker inspect africanapi_python_flask_cicd-registry-1 | findstr "healthy" >nul
+                        curl -f -s http://localhost:5000/v2/ >nul
                         if %ERRORLEVEL% equ 0 (
                             echo "Registry is ready"
                             goto :END
@@ -40,10 +39,14 @@ pipeline {
                         set /a ATTEMPT+=1
                         if !ATTEMPT! lss %MAX_ATTEMPTS% (
                             echo "Registry not yet healthy. Retrying in 1 second (attempt !ATTEMPT! of %MAX_ATTEMPTS%)..."
-                            timeout /t 1 /nobreak >nul
+                            echo "Registry logs for debugging:"
+                            docker logs africanapi_python_flask_cicd-registry-1
+                            timeout /t 1 /nobreak
                             goto :CHECK_REGISTRY
                         )
                         echo "Registry failed to become healthy after %MAX_ATTEMPTS% attempts."
+                        echo "Final registry logs:"
+                        docker logs africanapi_python_flask_cicd-registry-1
                         exit /b 1
                         :END
                         endlocal
@@ -57,7 +60,7 @@ pipeline {
                 script {
                     def pullAndPushImage = { String dockerHubImage, String localImage ->
                         def maxRetries = 3
-                        def retryDelay = 5 // seconds
+                        def retryDelay = 5
 
                         bat """
                             @echo off
@@ -164,7 +167,6 @@ pipeline {
                         @echo off
                         echo "Running Trivy scan..."
 
-                        REM Create Trivy cache directory if it doesn't exist
                         if not exist "${trivyCacheDir}" mkdir "${trivyCacheDir}"
 
                         docker run --rm ^
@@ -190,7 +192,6 @@ pipeline {
                         }
 
                         if (hasVulnerabilities) {
- Fac
                             error "Trivy scan found vulnerabilities with severity ${TRIVY_SEVERITY}. See trivy-report.json for details."
                         } else {
                             echo "No vulnerabilities found with severity ${TRIVY_SEVERITY}."
@@ -275,6 +276,8 @@ pipeline {
                             echo     env_file:
                             echo       - .env
                             echo     volumes:
+                            echo       - ./app/static:/app/app/static
+                            echo       - ./app/cache:/app/app/cache
                             echo       - /etc/localtime:/etc/localtime:ro
                             echo     healthcheck:
                             echo       test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/api/v1/health"]
@@ -283,12 +286,30 @@ pipeline {
                             echo       retries: 3
                             echo       start_period: 5s
                             echo     restart: unless-stopped
+                            echo     depends_on:
+                            echo       redis:
+                            echo         condition: service_healthy
+                            echo   redis:
+                            echo     image: ${REDIS_LOCAL_IMAGE}
+                            echo     ports:
+                            echo       - "6379:6379"
+                            echo     volumes:
+                            echo       - redis_data:/data
+                            echo     healthcheck:
+                            echo       test: ["CMD", "redis-cli", "ping"]
+                            echo       interval: 10s
+                            echo       timeout: 3s
+                            echo       retries: 3
+                            echo       start_period: 5s
+                            echo     restart: unless-stopped
+                            echo volumes:
+                            echo   redis_data:
                         ) > docker-compose.deploy.yml
                     """
                 }
             }
         }
-        
+
         stage('Deploy with Docker Compose') {
             steps {
                 script {
@@ -298,7 +319,7 @@ pipeline {
                         docker-compose -f docker-compose.deploy.yml down || echo "No docker-compose services to stop"
 
                         echo "Starting new containers..."
-                        docker-compose -f docker-compose.yml up -d
+                        docker-compose -f docker-compose.deploy.yml up -d
 
                         echo "Container status:"
                         docker ps
@@ -316,7 +337,7 @@ pipeline {
                 """
             }
         }
-        
+
         stage('Cleanup Old Images') {
             steps {
                 script {
