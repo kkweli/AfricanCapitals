@@ -3,7 +3,8 @@ pipeline {
 
     // Environment variables for Docker and deployment
     environment {
-        DOCKERHUB_REPO = 'kkweli25/kkweli'
+        LOCAL_REGISTRY = 'localhost:5000' // Local registry address
+        DOCKERHUB_REPO = "${LOCAL_REGISTRY}/africanapi" // Update repository name
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'african-capitals-api'
         HOST_PORT = '8000'
@@ -43,23 +44,17 @@ pipeline {
             }
         }
 
+        // Docker Login (No login needed for local registry)
         stage('Docker Login') {
             steps {
                 script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'docker-hub-login',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        bat """
-                            echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-                        """
-                    }
+                    // No login needed for local registry
+                    echo "Skipping Docker Login for local registry"
                 }
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Push to Local Registry') {
             steps {
                 script {
                     retry(3) {
@@ -103,7 +98,7 @@ pipeline {
                         // Check Trivy exit code
                         def trivyReport = readJSON file: 'trivy-report.json'
                         def hasVulnerabilities = trivyReport.Results.any { result ->
-                            result.Vulnerabilities != null && !result.Vulnerabilities.isEmpty()
+                            result.Vulnerabilities != null && !trivyReport.Results.isEmpty()
                         }
 
                         if (hasVulnerabilities) {

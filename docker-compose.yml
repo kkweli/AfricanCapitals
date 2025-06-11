@@ -1,42 +1,54 @@
+version: "3.8"
+
 services:
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
-    image: kkweli/africanapi:latest
+      context: . # Use the current directory as the build context
+      dockerfile: Dockerfile # Specify the Dockerfile to use for building the image
+    image: localhost:5000/africanapi:latest  # Image name for local registry, tagged as 'latest'
     ports:
-      - "8000:8000"
+      - "8000:8000" # Map host port 8000 to container port 8000
     env_file:
-      - .env
+      - .env # Load environment variables from the .env file
     volumes:
-      - ./app/static:/app/app/static
-      - ./app/cache:/app/app/cache
+      - ./app/static:/app/app/static # Mount the static directory for serving static files
+      - ./app/cache:/app/app/cache # Mount the cache directory for persistent caching
     healthcheck:
-      test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/api/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    restart: unless-stopped
+      test: ["CMD", "curl", "-s", "-f", "http://localhost:${CONTAINER_PORT}/api/v1/health"] # Define a health check using curl
+      interval: 30s # Check the health every 30 seconds
+      timeout: 10s # Allow 10 seconds for the health check to complete
+      retries: 3 # Retry the health check 3 times before considering the container unhealthy
+      start_period: 5s # Give the application 5 seconds to start before health checks begin
+    restart: unless-stopped # Restart the container unless it was explicitly stopped
     depends_on:
-      - redis
+      - redis # Ensure the redis service is running before starting the api service
 
   redis:
-    image: redis:alpine
+    image: redis:alpine # Use the alpine version of the redis image
     ports:
-      - "6379:6379"
+      - "6379:6379" # Map host port 6379 to container port 6379
     volumes:
-      - redis_data:/data
-    restart: unless-stopped
+      - redis_data:/data # Mount a volume for persistent redis data
+    restart: unless-stopped # Restart the container unless it was explicitly stopped
+
+  registry:
+    image: registry:2 # Use the official registry image
+    ports:
+      - "5000:5000" # Map host port 5000 to container port 5000
+    volumes:
+      - C:/projects/local_registry:/var/lib/registry  # Mount Windows path for storing registry data
+    restart: unless-stopped # Restart the container unless it was explicitly stopped
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true" # Enable delete API
 
   trivy:
-    image: aquasec/trivy:latest
-    command: image --format json --output /trivy-report.json kkweli/africanapi:latest
+    image: aquasec/trivy:latest # Use the latest trivy image
+    command: image --format json --output /trivy-report.json localhost:5000/africanapi:latest # Run trivy scan on the api image
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./trivy-report.json:/trivy-report.json
+      - /var/run/docker.sock:/var/run/docker.sock # Mount the docker socket to allow trivy to access docker
+      - ./trivy-report.json:/trivy-report.json # Mount a volume to store the trivy report
     depends_on:
-      - api
+      - api # Ensure the api service is running before starting the trivy service
 
 volumes:
-  redis_data:
+  redis_data: # Define a named volume for redis data persistence
