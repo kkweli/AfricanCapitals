@@ -199,7 +199,7 @@ pipeline {
                         "GMT Standard Time": "Europe/London",
                         "Tokyo Standard Time": "Asia/Tokyo",
                         "China Standard Time": "Asia/Shanghai",
-                        India Standard Time": "Asia/Kolkata",
+                        "India Standard Time": "Asia/Kolkata",
                         "Central Standard Time": "America/Chicago",
                         "Mountain Standard Time": "America/Denver",
                         "W. Europe Standard Time": "Europe/Berlin"
