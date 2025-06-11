@@ -9,6 +9,7 @@ pipeline {
         HOST_PORT = '8000'
         CONTAINER_PORT = '8000'
         TRIVY_IMAGE = 'aquasec/trivy:0.51.1'
+        TRIVY_SEVERITY = 'HIGH,CRITICAL' // Define severity threshold
     }
 
     stages {
@@ -84,14 +85,60 @@ pipeline {
         stage('Trivy Scan') {
             steps {
                 script {
+                    def trivyCacheDir = "${WORKSPACE}/.trivycache" // Define cache directory
+
                     bat """
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
-                            -v %CD%:/root/.cache/ ^
-                            -v %CD%:/scan ^
-                            %TRIVY_IMAGE% image --format json --output /scan/trivy-report.json ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        @echo off
+                        echo "Running Trivy scan..."
+
+                        REM Create Trivy cache directory if it doesn't exist
+                        if not exist "%TRIVY_CACHE_DIR%" mkdir "%TRIVY_CACHE_DIR%"
+
+                        docker run --rm ^
+                            -v /var/run/docker.sock:/var/run/docker.sock ^
+                            -v "${trivyCacheDir}:/root/.cache/" ^
+                            -v "%CD%:/scan" ^
+                            %TRIVY_IMAGE% image ^
+                            --security-checks vuln,config ^
+                            --severity %TRIVY_SEVERITY% ^
+                            --format json ^
+                            --output /scan/trivy-report.json ^
+                            ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                        echo "Trivy scan completed.  Check trivy-report.json for details."
                     """
+
+                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+
+                    script {
+                        // Check Trivy exit code
+                        def trivyReport = readJSON file: 'trivy-report.json'
+                        def hasVulnerabilities = trivyReport.Results.any { result ->
+                            result.Vulnerabilities != null && !result.Vulnerabilities.isEmpty()
+                        }
+
+                        if (hasVulnerabilities) {
+                            error "Trivy scan found vulnerabilities with severity ${TRIVY_SEVERITY}.  See trivy-report.json for details."
+                        } else {
+                            echo "No vulnerabilities found with severity ${TRIVY_SEVERITY}."
+                        }
+                    }
                 }
-                archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+            }
+        }
+
+        stage('Trivy Filesystem Scan') {
+            steps {
+                script {
+                    def trivyCacheDir = "${WORKSPACE}/.trivycache"
+                    bat """
+                        @echo off
+                        echo "Running Trivy filesystem scan..."
+                        if not exist "%TRIVY_CACHE_DIR%" mkdir "%TRIVY_CACHE_DIR%"
+                        docker run --rm -v "${trivyCacheDir}:/root/.cache/" -v "%CD%:/scan" %TRIVY_IMAGE% fs --security-checks vuln,config --severity %TRIVY_SEVERITY%  --format json --output /scan/trivy-fs-report.json /scan
+                    """
+                    archiveArtifacts artifacts: 'trivy-fs-report.json', allowEmptyArchive: true
+                }
             }
         }
 
