@@ -9,7 +9,7 @@ pipeline {
         HOST_PORT = '8000'
         CONTAINER_PORT = '8000'
         TRIVY_IMAGE = 'aquasec/trivy:0.51.1'
-        TRIVY_SEVERITY = 'HIGH,CRITICAL' // Define severity threshold
+        TRIVY_SEVERITY = ''//'HIGH,CRITICAL' // Define severity threshold
     }
 
     stages {
